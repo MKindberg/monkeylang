@@ -1,6 +1,6 @@
 use crate::token::Token;
 
-struct Lexer {
+pub struct Lexer {
     input: String,
     position: usize,
     read_position: usize,
@@ -34,21 +34,21 @@ impl Lexer {
 
     fn read_identifier(&mut self) -> String {
         let position = self.position;
-        while Self::is_letter(self.ch.unwrap()) {
+        while let Some(c) = self.ch && Self::is_letter(c) {
             self.read_char();
         }
         self.input[position..self.position].to_string()
     }
 
     fn skip_whitespace(&mut self) {
-        while self.ch.map(char::is_whitespace).unwrap_or(false) {
+        while let Some(c) = self.ch && c.is_whitespace() {
             self.read_char();
         }
     }
 
     fn read_number(&mut self) -> i64 {
         let position = self.position;
-        while self.ch.unwrap().is_numeric() {
+        while let Some(c) = self.ch && c.is_numeric() {
             self.read_char();
         }
         i64::from_str_radix(&self.input[position..self.position], 10).unwrap()
