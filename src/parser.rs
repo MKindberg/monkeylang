@@ -3,12 +3,29 @@ use crate::lexer::Lexer;
 use crate::token::Token;
 
 use std::any::Any;
+use std::collections::HashMap;
+
+type PrefixParseFn = fn(&mut Parser) -> Option<Box<dyn ast::Expression>>;
+type InfixParseFn = fn(Box<dyn ast::Expression>) -> Option<Box<dyn ast::Expression>>;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum Precedence {
+    LOWEST,
+    EQUALS,
+    LESSGREATER,
+    SUM,
+    PRODUCT,
+    PREFIX,
+    CALL,
+}
 
 struct Parser {
     l: Lexer,
     current_token: Token,
     peek_token: Token,
     errors: Vec<String>,
+    prefix_parse_fns: HashMap<Token, PrefixParseFn>,
+    infix_parse_fns: HashMap<Token, InfixParseFn>,
 }
 
 impl Parser {
@@ -18,10 +35,28 @@ impl Parser {
             current_token: Token::EOF,
             peek_token: Token::EOF,
             errors: vec![],
+            prefix_parse_fns: HashMap::new(),
+            infix_parse_fns: HashMap::new(),
         };
         p.next_token();
         p.next_token();
+        p.register_prefix(Token::IDENT("".to_string()), Parser::parse_identifier);
         return p;
+    }
+
+    fn parse_identifier(&mut self) -> Option<Box<dyn ast::Expression>> {
+        return Some(Box::new(ast::Identifier {
+            token: self.current_token.clone(),
+            value: self.current_token.to_string(),
+        }));
+    }
+
+    fn register_prefix(&mut self, token: Token, prefix_parse_fn: PrefixParseFn) {
+        self.prefix_parse_fns.insert(token, prefix_parse_fn);
+    }
+
+    fn register_infix(&mut self, token: Token, infix_parse_fn: InfixParseFn) {
+        self.infix_parse_fns.insert(token, infix_parse_fn);
     }
 
     fn next_token(&mut self) {
@@ -94,11 +129,36 @@ impl Parser {
         }));
     }
 
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Box<dyn ast::Expression>> {
+        let prefix = self.prefix_parse_fns.get(&Token::normalize_tok(&self.current_token));
+        if let Some(prefix) = prefix {
+            return prefix(self);
+        }
+        return None;
+    }
+
+    fn parse_expression_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+        let expr = self.parse_expression(Precedence::LOWEST);
+        let tok = self.current_token.clone();
+
+        if self.peek_token == Token::SEMICOLON {
+            self.next_token();
+        }
+
+        if let Some(expr) = expr {
+            return Some(Box::new(ast::ExpressionStatement {
+                token: tok,
+                expression: expr,
+            }));
+        }
+        return None;
+    }
+
     fn parse_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
         match self.current_token {
             Token::LET => self.parse_let_statement(),
             Token::RETURN => self.parse_return_statement(),
-            _ => None,
+            _ => self.parse_expression_statement(),
         }
     }
 
@@ -177,5 +237,20 @@ return 993322;";
             let r = s.as_any().downcast_ref::<ast::ReturnStatement>().unwrap();
             assert_eq!(r.token, Token::RETURN);
         }
+    }
+
+    #[test]
+    fn test_identifier_expression() {
+        let input = "foobar;";
+
+        let l = Lexer::new(input.to_string());
+        let mut p = Parser::new(l);
+        let program = p.parse_program();
+        assert!(program.is_some());
+        check_parser_errors(p);
+
+        assert_eq!(program.as_ref().unwrap().statements.len(), 1);
+        let s = program.as_ref().unwrap().statements.get(0).unwrap();
+        assert_eq!(s.token_literal(), "Identifier:foobar".to_string());
     }
 }

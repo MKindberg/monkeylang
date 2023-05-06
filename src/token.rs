@@ -1,4 +1,4 @@
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Eq, Hash)]
 pub enum Token {
     ILLEGAL(String),
     EOF,
@@ -48,6 +48,14 @@ impl Token {
             "else" => Token::ELSE,
             "return" => Token::RETURN,
             _ => Token::IDENT(ident.to_string()),
+        }
+    }
+
+    pub fn normalize_tok(tok: &Token) -> Token {
+        match tok {
+            Token::IDENT(_) => Token::IDENT("".to_string()),
+            Token::INT(_) => Token::INT(0),
+            _ => tok.clone(),
         }
     }
 }
