@@ -1,11 +1,14 @@
-#[derive(PartialEq, Debug, Clone, Eq, Hash)]
+use std::hash::Hash;
+use std::hash::Hasher;
+
+#[derive(Debug, Clone, Eq)]
 pub enum Token {
     ILLEGAL(String),
     EOF,
 
     // Identifiers + literals
-    IDENT(String),
-    INT(i64),
+    IDENT(Option<String>),
+    INT(Option<i64>),
 
     // Operators
     ASSIGN,
@@ -47,15 +50,7 @@ impl Token {
             "if" => Token::IF,
             "else" => Token::ELSE,
             "return" => Token::RETURN,
-            _ => Token::IDENT(ident.to_string()),
-        }
-    }
-
-    pub fn normalize_tok(tok: &Token) -> Token {
-        match tok {
-            Token::IDENT(_) => Token::IDENT("".to_string()),
-            Token::INT(_) => Token::INT(0),
-            _ => tok.clone(),
+            _ => Token::IDENT(Some(ident.to_string())),
         }
     }
 }
@@ -65,8 +60,10 @@ impl ToString for Token {
         match self {
             Token::ILLEGAL(token) => "ILLEGAL:".to_string() + &token.to_string(),
             Token::EOF => "EOF".to_string(),
-            Token::IDENT(token) => "Identifier:".to_string() + &token.to_string(),
-            Token::INT(token) => token.to_string(),
+            Token::IDENT(Some(token)) => "Identifier:".to_string() + &token.to_string(),
+            Token::IDENT(None) => "Identifier:\"\"".to_string(),
+            Token::INT(Some(token)) => token.to_string(),
+            Token::INT(None) => "NaN".to_string(),
             Token::ASSIGN => "=".to_string(),
             Token::PLUS => "+".to_string(),
             Token::MINUS => "-".to_string(),
@@ -91,5 +88,52 @@ impl ToString for Token {
             Token::ELSE => "else".to_string(),
             Token::RETURN => "return".to_string(),
         }
+    }
+}
+
+impl PartialEq for Token {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Token::IDENT(Some(a)), Token::IDENT(Some(b))) => a == b,
+            (Token::IDENT(_), Token::IDENT(_)) => true,
+            (Token::INT(Some(a)), Token::INT(Some(b))) => a == b,
+            (Token::INT(_), Token::INT(_)) => true,
+            (Token::ASSIGN, Token::ASSIGN) => true,
+            (Token::PLUS, Token::PLUS) => true,
+            (Token::MINUS, Token::MINUS) => true,
+            (Token::BANG, Token::BANG) => true,
+            (Token::ASTERISK, Token::ASTERISK) => true,
+            (Token::SLASH, Token::SLASH) => true,
+            (Token::LT, Token::LT) => true,
+            (Token::GT, Token::GT) => true,
+            (Token::EQ, Token::EQ) => true,
+            (Token::NEQ, Token::NEQ) => true,
+            (Token::COMMA, Token::COMMA) => true,
+            (Token::SEMICOLON, Token::SEMICOLON) => true,
+            (Token::LPAREN, Token::LPAREN) => true,
+            (Token::RPAREN, Token::RPAREN) => true,
+            (Token::LBRACE, Token::LBRACE) => true,
+            (Token::RBRACE, Token::RBRACE) => true,
+            (Token::FUNCTION, Token::FUNCTION) => true,
+            (Token::LET, Token::LET) => true,
+            (Token::TRUE, Token::TRUE) => true,
+            (Token::FALSE, Token::FALSE) => true,
+            (Token::IF, Token::IF) => true,
+            (Token::ELSE, Token::ELSE) => true,
+            (Token::RETURN, Token::RETURN) => true,
+            (Token::EOF, Token::EOF) => true,
+            (Token::ILLEGAL(_), Token::ILLEGAL(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Hash for Token {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            Token::IDENT(_) => "IDENTIFIER".hash(state),
+            Token::INT(_) => "INTEGER".hash(state),
+            _ => self.to_string().hash(state),
+        };
     }
 }

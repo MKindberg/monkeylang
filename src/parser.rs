@@ -40,7 +40,7 @@ impl Parser {
         };
         p.next_token();
         p.next_token();
-        p.register_prefix(Token::IDENT("".to_string()), Parser::parse_identifier);
+        p.register_prefix(Token::IDENT(None), Parser::parse_identifier);
         return p;
     }
 
@@ -79,10 +79,6 @@ impl Parser {
         if self.peek_token == t {
             self.next_token();
             return true;
-        } else if t == Token::IDENT("".to_string()) && let Token::IDENT(_) = self.peek_token {
-            return true;
-        } else if t == Token::INT(0) && let Token::INT(_) = self.peek_token {
-            return true;
         } else {
             self.peek_error(t);
         }
@@ -90,21 +86,19 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
-        if self.expect_peek(Token::IDENT("".to_string())) && let Token::IDENT(name) = self.peek_token.clone() {
-            self.next_token();
+        if self.expect_peek(Token::IDENT(None)) && let Token::IDENT(Some(name)) = self.current_token.clone() {
             if self.expect_peek(Token::ASSIGN) {
-                self.next_token();
                 while self.peek_token != Token::SEMICOLON {
                     self.next_token();
                 }
                 return Some(Box::new(ast::LetStatement {
                     token: Token::LET,
                     name: ast::Identifier {
-                        token: Token::IDENT(name.to_string()),
+                        token: Token::IDENT(Some(name.to_string())),
                         value: name.to_string(),
                     },
                     value: Box::new(ast::Identifier {
-                        token: Token::IDENT("".to_string()),
+                        token: Token::IDENT(None),
                         value: "".to_string(),
                     }),
                 }));
@@ -123,14 +117,14 @@ impl Parser {
         return Some(Box::new(ast::ReturnStatement {
             token: Token::RETURN,
             value: Box::new(ast::Identifier {
-                token: Token::IDENT("".to_string()),
+                token: Token::IDENT(None),
                 value: "".to_string(),
             }),
         }));
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Box<dyn ast::Expression>> {
-        let prefix = self.prefix_parse_fns.get(&Token::normalize_tok(&self.current_token));
+        let prefix = self.prefix_parse_fns.get(&self.current_token);
         if let Some(prefix) = prefix {
             return prefix(self);
         }
@@ -145,10 +139,10 @@ impl Parser {
             self.next_token();
         }
 
-        if let Some(expr) = expr {
+        if let Some(e) = expr {
             return Some(Box::new(ast::ExpressionStatement {
                 token: tok,
-                expression: expr,
+                expression: e,
             }));
         }
         return None;
@@ -177,11 +171,8 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
-
     use super::*;
     use crate::ast::LetStatement;
-    use crate::ast::Program;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;

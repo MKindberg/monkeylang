@@ -43,7 +43,7 @@ impl Program {
             .unwrap_or("".to_string());
     }
 
-    fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         return self
             .statements
             .iter()
@@ -114,11 +114,11 @@ mod tests {
                 Box::new(LetStatement {
                     token: Token::LET,
                     name: Identifier {
-                        token: Token::IDENT("myVar".to_string()),
+                        token: Token::IDENT(Some("myVar".to_string())),
                         value: "myVar".to_string(),
                     },
                     value: Box::new(Identifier {
-                        token: Token::IDENT("anotherVar".to_string()),
+                        token: Token::IDENT(Some("anotherVar".to_string())),
                         value: "anotherVar".to_string(),
                     }),
                 })
