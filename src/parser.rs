@@ -41,6 +41,9 @@ impl Parser {
         p.next_token();
         p.next_token();
         p.register_prefix(Token::IDENT(None), Parser::parse_identifier);
+        p.register_prefix(Token::INT(None), Parser::parse_integer_literal);
+        p.register_prefix(Token::BANG, Parser::parse_prefix_expression);
+        p.register_prefix(Token::MINUS, Parser::parse_prefix_expression);
         return p;
     }
 
@@ -48,6 +51,33 @@ impl Parser {
         return Some(Box::new(ast::Identifier {
             token: self.current_token.clone(),
             value: self.current_token.to_string(),
+        }));
+    }
+
+    fn parse_integer_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
+        return Some(Box::new(ast::IntegerLiteral {
+            token: self.current_token.clone(),
+            value: match self.current_token.clone() {
+                Token::INT(n) => n.unwrap(),
+                _ => {
+                    self.errors.push(format!(
+                        "Could not parse {} as integer",
+                        self.current_token.to_string()
+                    ));
+                    return None;
+                }
+            },
+        }));
+    }
+
+    fn parse_prefix_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+        let token = self.current_token.clone();
+        self.next_token();
+        let right = self.parse_expression(Precedence::PREFIX)?;
+        return Some(Box::new(ast::PrefixExpression {
+            token: token.clone(),
+            operator: token.to_string(),
+            right,
         }));
     }
 
@@ -91,6 +121,7 @@ impl Parser {
                 while self.peek_token != Token::SEMICOLON {
                     self.next_token();
                 }
+                self.next_token();
                 return Some(Box::new(ast::LetStatement {
                     token: Token::LET,
                     name: ast::Identifier {
@@ -113,6 +144,7 @@ impl Parser {
         while self.peek_token != Token::SEMICOLON {
             self.next_token();
         }
+        self.next_token();
 
         return Some(Box::new(ast::ReturnStatement {
             token: Token::RETURN,
@@ -128,6 +160,10 @@ impl Parser {
         if let Some(prefix) = prefix {
             return prefix(self);
         }
+        self.errors.push(format!(
+            "No prefix parse function for {} found",
+            self.current_token.to_string()
+        ));
         return None;
     }
 
@@ -172,7 +208,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::LetStatement;
+    use crate::ast::{Expression, LetStatement};
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -243,5 +279,72 @@ return 993322;";
         assert_eq!(program.as_ref().unwrap().statements.len(), 1);
         let s = program.as_ref().unwrap().statements.get(0).unwrap();
         assert_eq!(s.token_literal(), "Identifier:foobar".to_string());
+    }
+
+    #[test]
+    fn test_integer_literal_expression() {
+        let input = "5;";
+
+        let l = Lexer::new(input.to_string());
+        let mut p = Parser::new(l);
+        let program = p.parse_program();
+        assert!(program.is_some());
+        check_parser_errors(p);
+
+        assert_eq!(program.as_ref().unwrap().statements.len(), 1);
+        let s = program.as_ref().unwrap().statements.get(0).unwrap();
+        assert_eq!(s.token_literal(), "5".to_string());
+    }
+
+    fn test_integer_literal(input: &Box<dyn Expression>, value: i64) {
+        let i = input
+            .as_any()
+            .downcast_ref::<ast::IntegerLiteral>()
+            .unwrap();
+        assert_eq!(i.value, value);
+    }
+
+    #[test]
+    fn test_parsing_prefix_expressions() {
+        struct PrefixTest {
+            input: String,
+            operator: String,
+            value: i64,
+        }
+        let tests = vec![
+            PrefixTest {
+                input: "!5;".to_string(),
+                operator: "!".to_string(),
+                value: 5,
+            },
+            PrefixTest {
+                input: "-15;".to_string(),
+                operator: "-".to_string(),
+                value: 15,
+            },
+        ];
+
+        for t in tests.iter() {
+            let l = Lexer::new(t.input.clone());
+            let mut p = Parser::new(l);
+            let program = p.parse_program();
+            assert!(program.is_some());
+            check_parser_errors(p);
+
+            assert_eq!(program.as_ref().unwrap().statements.len(), 1);
+            let s = program.as_ref().unwrap().statements.get(0).unwrap();
+            assert_eq!(s.token_literal(), t.value.to_string());
+            let e = s
+                .as_any()
+                .downcast_ref::<ast::ExpressionStatement>()
+                .unwrap()
+                .expression
+                .as_any()
+                .downcast_ref::<ast::PrefixExpression>()
+                .unwrap();
+            assert_eq!(e.operator, t.operator.to_string());
+
+            test_integer_literal(&e.right, t.value);
+        }
     }
 }

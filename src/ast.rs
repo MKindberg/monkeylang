@@ -102,6 +102,31 @@ impl_traits!(
     }
 );
 
+pub struct IntegerLiteral {
+    pub token: Token,
+    pub value: i64,
+}
+impl_traits!(
+    IntegerLiteral,
+    Expression,
+    fn to_string(&self) -> String {
+        self.value.to_string()
+    }
+);
+
+pub struct PrefixExpression {
+    pub token: Token,
+    pub operator: String,
+    pub right: Box<dyn Expression>,
+}
+impl_traits!(
+    PrefixExpression,
+    Expression,
+    fn to_string(&self) -> String {
+        format!("({}{})", self.operator, self.right.to_string())
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

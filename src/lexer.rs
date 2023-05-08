@@ -13,7 +13,7 @@ impl Lexer {
         Self {
             input,
             position: 0,
-            read_position: 0,
+            read_position: 1,
             ch: c,
         }
     }
