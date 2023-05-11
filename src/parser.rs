@@ -264,7 +264,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expression, LetStatement};
+    use crate::ast::{Expression, LetStatement, Node};
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -360,6 +360,43 @@ return 993322;";
         assert_eq!(i.value, value);
     }
 
+    fn test_identifier(input: &Box<dyn Expression>, value: &str) {
+        let i = input.as_any().downcast_ref::<ast::Identifier>().unwrap();
+        assert_eq!(i.value, value);
+        assert_eq!(i.token_literal(), value);
+    }
+
+    trait TestExpr {
+        fn test(&self, input: &Box<dyn Expression>);
+    }
+    impl TestExpr for i64 {
+        fn test(&self, input: &Box<dyn Expression>) {
+            test_integer_literal(input, *self);
+        }
+    }
+    impl TestExpr for &str {
+        fn test(&self, input: &Box<dyn Expression>) {
+            test_identifier(input, *self);
+        }
+    }
+    fn test_literal_expression<T: TestExpr>(input: &Box<dyn Expression>, value: &T) {
+        value.test(input);
+    }
+    fn test_infix_expression<T: TestExpr>(
+        input: &Box<dyn Expression>,
+        left: &T,
+        operator: &str,
+        right: &T,
+    ) {
+        let i = input
+            .as_any()
+            .downcast_ref::<ast::InfixExpression>()
+            .unwrap();
+        test_literal_expression(&i.left, left);
+        assert_eq!(i.operator, operator.to_string());
+        test_literal_expression(&i.right, right);
+    }
+
     #[test]
     fn test_parsing_prefix_expressions() {
         struct PrefixTest {
@@ -412,7 +449,7 @@ return 993322;";
             operator: String,
             right: i64,
         }
-        macro_rules! test_infix_expression {
+        macro_rules! infix_expression_test {
             ($op: literal) => {
                 InfixTest {
                     input: format!("5 {} 5", $op),
@@ -423,14 +460,14 @@ return 993322;";
             };
         }
         let tests = vec![
-            test_infix_expression!("+"),
-            test_infix_expression!("-"),
-            test_infix_expression!("*"),
-            test_infix_expression!("/"),
-            test_infix_expression!(">"),
-            test_infix_expression!("<"),
-            test_infix_expression!("=="),
-            test_infix_expression!("!="),
+            infix_expression_test!("+"),
+            infix_expression_test!("-"),
+            infix_expression_test!("*"),
+            infix_expression_test!("/"),
+            infix_expression_test!(">"),
+            infix_expression_test!("<"),
+            infix_expression_test!("=="),
+            infix_expression_test!("!="),
         ];
 
         for t in tests.iter() {
@@ -442,18 +479,13 @@ return 993322;";
 
             assert_eq!(program.as_ref().unwrap().statements.len(), 1);
             let s = program.as_ref().unwrap().statements.get(0).unwrap();
-            let e = s
+            let e = &s
                 .as_any()
                 .downcast_ref::<ast::ExpressionStatement>()
                 .unwrap()
-                .expression
-                .as_any()
-                .downcast_ref::<ast::InfixExpression>()
-                .unwrap();
+                .expression;
 
-            test_integer_literal(&e.left, t.left);
-            assert_eq!(e.operator, t.operator.to_string());
-            test_integer_literal(&e.right, t.right);
+            test_infix_expression(&e, &t.left, t.operator.as_str(), &t.right);
         }
     }
 
