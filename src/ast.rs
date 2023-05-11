@@ -62,7 +62,11 @@ impl_traits!(
     LetStatement,
     Statement,
     fn to_string(&self) -> String {
-        format!("let {} = {};", self.name.to_string(), self.value.to_string())
+        format!(
+            "let {} = {};",
+            self.name.to_string(),
+            self.value.to_string()
+        )
     }
 );
 
@@ -127,6 +131,25 @@ impl_traits!(
     }
 );
 
+pub struct InfixExpression {
+    pub token: Token,
+    pub left: Box<dyn Expression>,
+    pub operator: String,
+    pub right: Box<dyn Expression>,
+}
+impl_traits!(
+    InfixExpression,
+    Expression,
+    fn to_string(&self) -> String {
+        format!(
+            "({} {} {})",
+            self.left.to_string(),
+            self.operator,
+            self.right.to_string()
+        )
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,19 +158,17 @@ mod tests {
     #[test]
     fn test_string() {
         let program = Program {
-            statements: vec![
-                Box::new(LetStatement {
-                    token: Token::LET,
-                    name: Identifier {
-                        token: Token::IDENT(Some("myVar".to_string())),
-                        value: "myVar".to_string(),
-                    },
-                    value: Box::new(Identifier {
-                        token: Token::IDENT(Some("anotherVar".to_string())),
-                        value: "anotherVar".to_string(),
-                    }),
-                })
-            ]
+            statements: vec![Box::new(LetStatement {
+                token: Token::LET,
+                name: Identifier {
+                    token: Token::IDENT(Some("myVar".to_string())),
+                    value: "myVar".to_string(),
+                },
+                value: Box::new(Identifier {
+                    token: Token::IDENT(Some("anotherVar".to_string())),
+                    value: "anotherVar".to_string(),
+                }),
+            })],
         };
         assert_eq!(program.to_string(), "let myVar = anotherVar;");
     }

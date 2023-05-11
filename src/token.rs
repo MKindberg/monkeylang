@@ -60,8 +60,8 @@ impl ToString for Token {
         match self {
             Token::ILLEGAL(token) => "ILLEGAL:".to_string() + &token.to_string(),
             Token::EOF => "EOF".to_string(),
-            Token::IDENT(Some(token)) => "Identifier:".to_string() + &token.to_string(),
-            Token::IDENT(None) => "Identifier:\"\"".to_string(),
+            Token::IDENT(Some(token)) => token.to_string(),
+            Token::IDENT(None) => "No_Identifier".to_string(),
             Token::INT(Some(token)) => token.to_string(),
             Token::INT(None) => "NaN".to_string(),
             Token::ASSIGN => "=".to_string(),
