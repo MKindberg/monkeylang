@@ -150,6 +150,18 @@ impl_traits!(
     }
 );
 
+pub struct Boolean {
+    pub token: Token,
+    pub value: bool,
+}
+impl_traits!(
+    Boolean,
+    Expression,
+    fn to_string(&self) -> String {
+        self.value.to_string()
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

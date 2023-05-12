@@ -55,6 +55,8 @@ impl Parser {
         p.register_prefix(Token::INT(None), Parser::parse_integer_literal);
         p.register_prefix(Token::BANG, Parser::parse_prefix_expression);
         p.register_prefix(Token::MINUS, Parser::parse_prefix_expression);
+        p.register_prefix(Token::TRUE, Parser::parse_boolean);
+        p.register_prefix(Token::FALSE, Parser::parse_boolean);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -83,6 +85,23 @@ impl Parser {
                 _ => {
                     self.errors.push(format!(
                         "Could not parse {} as integer",
+                        self.current_token.to_string()
+                    ));
+                    return None;
+                }
+            },
+        }));
+    }
+
+    fn parse_boolean(&mut self) -> Option<Box<dyn ast::Expression>> {
+        return Some(Box::new(ast::Boolean {
+            token: self.current_token.clone(),
+            value: match self.current_token.clone() {
+                Token::TRUE => true,
+                Token::FALSE => false,
+                _ => {
+                    self.errors.push(format!(
+                        "Could not parse {} as boolean",
                         self.current_token.to_string()
                     ));
                     return None;
@@ -264,7 +283,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expression, LetStatement, Node};
+    use crate::ast::{Expression, LetStatement, Node, Program};
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -277,6 +296,16 @@ mod tests {
         assert_eq!(errors.len(), 0);
     }
 
+    fn read_program(input: &str) -> Program{
+        let l = Lexer::new(input.to_string());
+        let mut p = Parser::new(l);
+        let program = p.parse_program();
+        assert!(program.is_some());
+        check_parser_errors(p);
+        return program.unwrap();
+
+    }
+
     #[test]
     fn test_let_statements() {
         let input = "
@@ -284,78 +313,32 @@ mod tests {
         let y = 10;
         let foobar = 838383;
 ";
-        let l = Lexer::new(input.to_string());
-        let mut p = Parser::new(l);
-        let program = p.parse_program();
-        check_parser_errors(p);
-        assert!(program.is_some());
+        let program = read_program(input);
+
         let identifiers = ["x", "y", "foobar"];
         assert_eq!(
-            &program.as_ref().unwrap().statements.len(),
+            &program.statements.len(),
             &identifiers.len()
         );
 
-        for (s, i) in program.unwrap().statements.iter().zip(identifiers.iter()) {
+        for (s, i) in program.statements.iter().zip(identifiers.iter()) {
             assert_eq!(s.token_literal(), Token::LET.to_string());
             let l = s.as_any().downcast_ref::<LetStatement>().unwrap();
             assert_eq!(l.name.value, i.to_string());
         }
     }
 
-    #[test]
-    fn test_return_statements() {
-        let input = "
-return 5;
-return 10;
-return 993322;";
-        let l = Lexer::new(input.to_string());
-        let mut p = Parser::new(l);
-        let program = p.parse_program();
-        check_parser_errors(p);
-        assert!(program.is_some());
-        assert_eq!(&program.as_ref().unwrap().statements.len(), &3);
-
-        for s in program.unwrap().statements.iter() {
-            assert_eq!(s.token_literal(), "return".to_string());
-            let r = s.as_any().downcast_ref::<ast::ReturnStatement>().unwrap();
-            assert_eq!(r.token, Token::RETURN);
-        }
-    }
-
-    #[test]
-    fn test_identifier_expression() {
-        let input = "foobar;";
-
-        let l = Lexer::new(input.to_string());
-        let mut p = Parser::new(l);
-        let program = p.parse_program();
-        assert!(program.is_some());
-        check_parser_errors(p);
-
-        assert_eq!(program.as_ref().unwrap().statements.len(), 1);
-        let s = program.as_ref().unwrap().statements.get(0).unwrap();
-        assert_eq!(s.token_literal(), "foobar".to_string());
-    }
-
-    #[test]
-    fn test_integer_literal_expression() {
-        let input = "5;";
-
-        let l = Lexer::new(input.to_string());
-        let mut p = Parser::new(l);
-        let program = p.parse_program();
-        assert!(program.is_some());
-        check_parser_errors(p);
-
-        assert_eq!(program.as_ref().unwrap().statements.len(), 1);
-        let s = program.as_ref().unwrap().statements.get(0).unwrap();
-        assert_eq!(s.token_literal(), "5".to_string());
-    }
-
     fn test_integer_literal(input: &Box<dyn Expression>, value: i64) {
         let i = input
             .as_any()
             .downcast_ref::<ast::IntegerLiteral>()
+            .unwrap();
+        assert_eq!(i.value, value);
+    }
+    fn test_boolean(input: &Box<dyn Expression>, value: bool) {
+        let i = input
+            .as_any()
+            .downcast_ref::<ast::Boolean>()
             .unwrap();
         assert_eq!(i.value, value);
     }
@@ -379,6 +362,11 @@ return 993322;";
             test_identifier(input, *self);
         }
     }
+    impl TestExpr for bool {
+        fn test(&self, input: &Box<dyn Expression>) {
+            test_boolean(input, *self);
+        }
+    }
     fn test_literal_expression<T: TestExpr>(input: &Box<dyn Expression>, value: &T) {
         value.test(input);
     }
@@ -398,34 +386,115 @@ return 993322;";
     }
 
     #[test]
+    fn test_return_statements() {
+        let input = "
+return 5;
+return 10;
+return 993322;";
+        let program = read_program(input);
+
+        assert_eq!(&program.statements.len(), &3);
+
+        for s in program.statements.iter() {
+            assert_eq!(s.token_literal(), "return".to_string());
+            let r = s.as_any().downcast_ref::<ast::ReturnStatement>().unwrap();
+            assert_eq!(r.token, Token::RETURN);
+        }
+    }
+
+    #[test]
+    fn test_identifier_expression() {
+        let input = "foobar;";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let s = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&s.expression, &"foobar");
+    }
+
+    #[test]
+    fn test_integer_literal_expression() {
+        let input = "5;";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let s = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&s.expression, &5);
+    }
+
+    #[test]
+    fn test_boolean_literal_expression() {
+        let input = "true;";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let s = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&s.expression, &true);
+    }
+
+    #[test]
     fn test_parsing_prefix_expressions() {
-        struct PrefixTest {
+        struct IntPrefixTest {
             input: String,
             operator: String,
             value: i64,
         }
-        let tests = vec![
-            PrefixTest {
+        struct BoolPrefixTest {
+            input: String,
+            operator: String,
+            value: bool,
+        }
+        let int_tests = vec![
+            IntPrefixTest {
                 input: "!5;".to_string(),
                 operator: "!".to_string(),
                 value: 5,
             },
-            PrefixTest {
+            IntPrefixTest {
                 input: "-15;".to_string(),
                 operator: "-".to_string(),
                 value: 15,
             },
         ];
 
-        for t in tests.iter() {
-            let l = Lexer::new(t.input.clone());
-            let mut p = Parser::new(l);
-            let program = p.parse_program();
-            assert!(program.is_some());
-            check_parser_errors(p);
+        let bool_tests = vec![
+            BoolPrefixTest {
+                input: "!true;".to_string(),
+                operator: "!".to_string(),
+                value: true,
+            },
+            BoolPrefixTest {
+                input: "!false;".to_string(),
+                operator: "!".to_string(),
+                value: false,
+            },
+        ];
+        for t in int_tests.iter() {
+            let program = read_program(&t.input);
 
-            assert_eq!(program.as_ref().unwrap().statements.len(), 1);
-            let s = program.as_ref().unwrap().statements.get(0).unwrap();
+            assert_eq!(program.statements.len(), 1);
+            let s = program.statements.get(0).unwrap();
             assert_eq!(s.token_literal(), t.value.to_string());
             let e = s
                 .as_any()
@@ -437,21 +506,46 @@ return 993322;";
                 .unwrap();
             assert_eq!(e.operator, t.operator.to_string());
 
-            test_integer_literal(&e.right, t.value);
+            test_literal_expression(&e.right, &t.value);
+        }
+
+        for t in bool_tests.iter() {
+            let program = read_program(&t.input);
+
+            assert_eq!(program.statements.len(), 1);
+            let s = program.statements.get(0).unwrap();
+            assert_eq!(s.token_literal(), t.value.to_string());
+            let e = s
+                .as_any()
+                .downcast_ref::<ast::ExpressionStatement>()
+                .unwrap()
+                .expression
+                .as_any()
+                .downcast_ref::<ast::PrefixExpression>()
+                .unwrap();
+            assert_eq!(e.operator, t.operator.to_string());
+
+            test_literal_expression(&e.right, &t.value);
         }
     }
 
     #[test]
     fn test_parsing_infix_expressions() {
-        struct InfixTest {
+        struct InfixTestInt {
             input: String,
             left: i64,
             operator: String,
             right: i64,
         }
-        macro_rules! infix_expression_test {
+        struct InfixTestBool {
+            input: String,
+            left: bool,
+            operator: String,
+            right: bool,
+        }
+        macro_rules! infix_expression_test_int {
             ($op: literal) => {
-                InfixTest {
+                InfixTestInt {
                     input: format!("5 {} 5", $op),
                     left: 5,
                     operator: $op.to_string(),
@@ -459,26 +553,51 @@ return 993322;";
                 }
             };
         }
-        let tests = vec![
-            infix_expression_test!("+"),
-            infix_expression_test!("-"),
-            infix_expression_test!("*"),
-            infix_expression_test!("/"),
-            infix_expression_test!(">"),
-            infix_expression_test!("<"),
-            infix_expression_test!("=="),
-            infix_expression_test!("!="),
+        macro_rules! infix_expression_test_bool {
+            ($left: literal, $op: literal, $right: literal) => {
+                InfixTestBool {
+                    input: format!("{} {} {}", $left.to_string(), $op, $right.to_string()),
+                    left: $left,
+                    operator: $op.to_string(),
+                    right: $right,
+                }
+            };
+        }
+        let int_tests = vec![
+            infix_expression_test_int!("+"),
+            infix_expression_test_int!("-"),
+            infix_expression_test_int!("*"),
+            infix_expression_test_int!("/"),
+            infix_expression_test_int!(">"),
+            infix_expression_test_int!("<"),
+            infix_expression_test_int!("=="),
+            infix_expression_test_int!("!="),
+        ];
+        let bool_tests = vec![
+            infix_expression_test_bool!(true, "==", true),
+            infix_expression_test_bool!(true, "!=", false),
+            infix_expression_test_bool!(false, "==", false),
         ];
 
-        for t in tests.iter() {
-            let l = Lexer::new(t.input.clone());
-            let mut p = Parser::new(l);
-            let program = p.parse_program();
-            assert!(program.is_some());
-            check_parser_errors(p);
+        for t in int_tests.iter() {
+            let program = read_program(&t.input);
 
-            assert_eq!(program.as_ref().unwrap().statements.len(), 1);
-            let s = program.as_ref().unwrap().statements.get(0).unwrap();
+            assert_eq!(program.statements.len(), 1);
+            let s = program.statements.get(0).unwrap();
+            let e = &s
+                .as_any()
+                .downcast_ref::<ast::ExpressionStatement>()
+                .unwrap()
+                .expression;
+
+            test_infix_expression(&e, &t.left, t.operator.as_str(), &t.right);
+        }
+
+        for t in bool_tests.iter() {
+            let program = read_program(&t.input);
+
+            assert_eq!(program.statements.len(), 1);
+            let s = program.statements.get(0).unwrap();
             let e = &s
                 .as_any()
                 .downcast_ref::<ast::ExpressionStatement>()
@@ -507,17 +626,15 @@ return 993322;";
                 "3 + 4 * 5 == 3 * 1 + 4 * 5",
                 "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
             ),
+            ("true", "true"),
+            ("false", "false"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
+            ("3 < 5 == true", "((3 < 5) == true)"),
         ];
         for t in tests.iter() {
-            let l = Lexer::new(t.0.to_string());
-            let mut p = Parser::new(l);
-            let program = p.parse_program();
-            assert!(program.is_some());
-            check_parser_errors(p);
+            let program = read_program(t.0);
 
             let str = program
-                .as_ref()
-                .unwrap()
                 .statements
                 .iter()
                 .map(|s| s.to_string())
