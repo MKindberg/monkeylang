@@ -57,6 +57,7 @@ impl Parser {
         p.register_prefix(Token::MINUS, Parser::parse_prefix_expression);
         p.register_prefix(Token::TRUE, Parser::parse_boolean);
         p.register_prefix(Token::FALSE, Parser::parse_boolean);
+        p.register_prefix(Token::LPAREN, Parser::parse_grouped_expression);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -135,6 +136,16 @@ impl Parser {
             operator: token.to_string(),
             right,
         }));
+    }
+
+    fn parse_grouped_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+        self.next_token();
+
+        let exp = self.parse_expression(Precedence::LOWEST)?;
+        if !self.expect_peek(Token::RPAREN) {
+            return None;
+        }
+        return Some(exp);
     }
 
     fn register_prefix(&mut self, token: Token, prefix_parse_fn: PrefixParseFn) {
@@ -296,14 +307,13 @@ mod tests {
         assert_eq!(errors.len(), 0);
     }
 
-    fn read_program(input: &str) -> Program{
+    fn read_program(input: &str) -> Program {
         let l = Lexer::new(input.to_string());
         let mut p = Parser::new(l);
         let program = p.parse_program();
         assert!(program.is_some());
         check_parser_errors(p);
         return program.unwrap();
-
     }
 
     #[test]
@@ -316,10 +326,7 @@ mod tests {
         let program = read_program(input);
 
         let identifiers = ["x", "y", "foobar"];
-        assert_eq!(
-            &program.statements.len(),
-            &identifiers.len()
-        );
+        assert_eq!(&program.statements.len(), &identifiers.len());
 
         for (s, i) in program.statements.iter().zip(identifiers.iter()) {
             assert_eq!(s.token_literal(), Token::LET.to_string());
@@ -336,10 +343,7 @@ mod tests {
         assert_eq!(i.value, value);
     }
     fn test_boolean(input: &Box<dyn Expression>, value: bool) {
-        let i = input
-            .as_any()
-            .downcast_ref::<ast::Boolean>()
-            .unwrap();
+        let i = input.as_any().downcast_ref::<ast::Boolean>().unwrap();
         assert_eq!(i.value, value);
     }
 
@@ -630,6 +634,11 @@ return 993322;";
             ("false", "false"),
             ("3 > 5 == false", "((3 > 5) == false)"),
             ("3 < 5 == true", "((3 < 5) == true)"),
+            ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4)"),
+            ("(5 + 5) * 2", "((5 + 5) * 2)"),
+            ("2 / (5 + 5)", "(2 / (5 + 5))"),
+            ("-(5 + 5)", "(-(5 + 5))"),
+            ("!(true == true)", "(!(true == true))"),
         ];
         for t in tests.iter() {
             let program = read_program(t.0);
