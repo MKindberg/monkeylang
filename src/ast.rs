@@ -162,6 +162,45 @@ impl_traits!(
     }
 );
 
+pub struct BlockStatement {
+    pub token: Token,
+    pub statements: Vec<Box<dyn Statement>>,
+}
+impl_traits!(
+    BlockStatement,
+    Statement,
+    fn to_string(&self) -> String {
+        self.statements
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+);
+
+pub struct IfExpression {
+    pub token: Token,
+    pub condition: Box<dyn Expression>,
+    pub consequence: Box<dyn Statement>,
+    pub alternative: Option<Box<dyn Statement>>,
+}
+impl_traits!(
+    IfExpression,
+    Expression,
+    fn to_string(&self) -> String {
+        format!(
+            "if ({}) {} {}",
+            self.condition.to_string(),
+            self.consequence.to_string(),
+            if let Some(alternative) = &self.alternative {
+                format!("else {}", alternative.to_string())
+            } else {
+                "".to_string()
+            }
+        )
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -58,6 +58,7 @@ impl Parser {
         p.register_prefix(Token::TRUE, Parser::parse_boolean);
         p.register_prefix(Token::FALSE, Parser::parse_boolean);
         p.register_prefix(Token::LPAREN, Parser::parse_grouped_expression);
+        p.register_prefix(Token::IF, Parser::parse_if_expression);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -146,6 +147,55 @@ impl Parser {
             return None;
         }
         return Some(exp);
+    }
+
+    fn parse_block_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+        let mut stmts = vec![];
+        let token = self.current_token.clone();
+        self.next_token();
+        while self.current_token != Token::RBRACE && self.current_token != Token::EOF {
+            if let Some(stmt) = self.parse_statement() {
+                stmts.push(stmt);
+            }
+            self.next_token();
+        }
+        return Some(Box::new(ast::BlockStatement {
+            token,
+            statements: stmts,
+        }));
+    }
+
+    fn parse_if_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+        let token = self.current_token.clone();
+        if !self.expect_peek(Token::LPAREN) {
+            return None;
+        }
+        self.next_token();
+        let condition = self.parse_expression(Precedence::LOWEST)?;
+        if !self.expect_peek(Token::RPAREN) {
+            return None;
+        }
+        if !self.expect_peek(Token::LBRACE) {
+            return None;
+        }
+
+        let consequence = self.parse_block_statement()?;
+
+        let alternative = if self.peek_token == Token::ELSE {
+            self.next_token();
+            if !self.expect_peek(Token::LBRACE) {
+                return None;
+            }
+            Some(self.parse_block_statement()?)
+        } else {
+            None
+        };
+        return Some(Box::new(ast::IfExpression {
+            token,
+            condition,
+            consequence,
+            alternative,
+        }));
     }
 
     fn register_prefix(&mut self, token: Token, prefix_parse_fn: PrefixParseFn) {
@@ -254,8 +304,8 @@ impl Parser {
     }
 
     fn parse_expression_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
-        let expr = self.parse_expression(Precedence::LOWEST);
         let tok = self.current_token.clone();
+        let expr = self.parse_expression(Precedence::LOWEST);
 
         if self.peek_token == Token::SEMICOLON {
             self.next_token();
@@ -498,9 +548,10 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let s = program.statements.get(0).unwrap();
-            assert_eq!(s.token_literal(), t.value.to_string());
-            let e = s
+            let e = program
+                .statements
+                .get(0)
+                .unwrap()
                 .as_any()
                 .downcast_ref::<ast::ExpressionStatement>()
                 .unwrap()
@@ -517,9 +568,10 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let s = program.statements.get(0).unwrap();
-            assert_eq!(s.token_literal(), t.value.to_string());
-            let e = s
+            let e = program
+                .statements
+                .get(0)
+                .unwrap()
                 .as_any()
                 .downcast_ref::<ast::ExpressionStatement>()
                 .unwrap()
@@ -651,5 +703,93 @@ return 993322;";
                 .join("");
             assert_eq!(str.to_string(), t.1.to_string());
         }
+    }
+
+    #[test]
+    fn test_if_expression() {
+        let input = "if (x < y) { x }";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let s = program.statements.get(0).unwrap();
+        assert_eq!(s.token_literal(), "if");
+        let if_exp = &s
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap()
+            .expression
+            .as_any()
+            .downcast_ref::<ast::IfExpression>()
+            .unwrap();
+        test_infix_expression(&if_exp.condition, &"x", &"<", &"y");
+
+        let if_branch = if_exp
+            .consequence
+            .as_any()
+            .downcast_ref::<ast::BlockStatement>()
+            .unwrap();
+        assert_eq!(if_branch.statements.len(), 1);
+        let e = if_branch
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&e.expression, &"x");
+
+        assert!(if_exp.alternative.is_none());
+    }
+
+    #[test]
+    fn test_if_else_expression() {
+        let input = "if (x < y) { x } else { y }";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let s = program.statements.get(0).unwrap();
+        assert_eq!(s.token_literal(), "if");
+        let if_exp = &s
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap()
+            .expression
+            .as_any()
+            .downcast_ref::<ast::IfExpression>()
+            .unwrap();
+        test_infix_expression(&if_exp.condition, &"x", &"<", &"y");
+
+        let if_branch = if_exp
+            .consequence
+            .as_any()
+            .downcast_ref::<ast::BlockStatement>()
+            .unwrap();
+        assert_eq!(if_branch.statements.len(), 1);
+        let e = if_branch
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&e.expression, &"x");
+
+        assert!(if_exp.alternative.is_some());
+        let if_branch = if_exp
+            .consequence
+            .as_any()
+            .downcast_ref::<ast::BlockStatement>()
+            .unwrap();
+        assert_eq!(if_branch.statements.len(), 1);
+        let e = if_branch
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap();
+        test_literal_expression(&e.expression, &"x");
     }
 }
