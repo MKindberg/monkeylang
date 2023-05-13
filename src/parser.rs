@@ -59,6 +59,7 @@ impl Parser {
         p.register_prefix(Token::FALSE, Parser::parse_boolean);
         p.register_prefix(Token::LPAREN, Parser::parse_grouped_expression);
         p.register_prefix(Token::IF, Parser::parse_if_expression);
+        p.register_prefix(Token::FUNCTION, Parser::parse_fucntion_literal);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -195,6 +196,52 @@ impl Parser {
             condition,
             consequence,
             alternative,
+        }));
+    }
+
+    fn parse_function_params(&mut self) -> Option<Vec<ast::Identifier>> {
+        let mut params = vec![];
+        if self.peek_token == Token::RPAREN {
+            self.next_token();
+            return Some(params);
+        }
+
+        self.next_token();
+
+        params.push(ast::Identifier {
+            token: self.current_token.clone(),
+            value: self.current_token.to_string(),
+        });
+        while self.peek_token == Token::COMMA {
+            self.next_token();
+            self.next_token();
+            params.push(ast::Identifier {
+                token: self.current_token.clone(),
+                value: self.current_token.to_string(),
+            });
+        }
+        if !self.expect_peek(Token::RPAREN) {
+            return None;
+        }
+        return Some(params);
+    }
+
+    fn parse_fucntion_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
+        let token = self.current_token.clone();
+        if !self.expect_peek(Token::LPAREN) {
+            return None;
+        }
+
+        let params = self.parse_function_params()?;
+
+        if !self.expect_peek(Token::LBRACE) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        return Some(Box::new(ast::FunctionLiteral {
+            token,
+            parameters: params,
+            body,
         }));
     }
 
@@ -344,7 +391,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expression, LetStatement, Node, Program};
+    use crate::ast::{Expression, ExpressionStatement, LetStatement, Node, Program};
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -791,5 +838,73 @@ return 993322;";
             .downcast_ref::<ast::ExpressionStatement>()
             .unwrap();
         test_literal_expression(&e.expression, &"x");
+    }
+
+    #[test]
+    fn test_function_literal() {
+        let input = "fn(x, y) { x + y; }";
+
+        let program = read_program(input);
+
+        assert_eq!(program.statements.len(), 1);
+        let f = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ast::ExpressionStatement>()
+            .unwrap()
+            .expression
+            .as_any()
+            .downcast_ref::<ast::FunctionLiteral>()
+            .unwrap();
+
+        assert_eq!(f.parameters.len(), 2);
+        assert_eq!(&f.parameters.get(0).unwrap().value, &"x");
+        assert_eq!(&f.parameters.get(1).unwrap().value, &"y");
+
+        let b = f
+            .body
+            .as_any()
+            .downcast_ref::<ast::BlockStatement>()
+            .unwrap();
+        assert_eq!(b.statements.len(), 1);
+        let e = b
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ExpressionStatement>()
+            .unwrap();
+        test_infix_expression(&e.expression, &"x", &"+", &"y");
+    }
+
+    #[test]
+    fn test_function_parameter_parsing() {
+        let tests = vec![
+            ("fn() {};", vec![]),
+            ("fn(x) {};", vec!["x"]),
+            ("fn(x, y, z) {};", vec!["x", "y", "z"]),
+        ];
+
+        for t in tests.iter() {
+            let program = read_program(t.0);
+            assert_eq!(program.statements.len(), 1);
+            let f = program
+                .statements
+                .get(0)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<ast::ExpressionStatement>()
+                .unwrap()
+                .expression
+                .as_any()
+                .downcast_ref::<ast::FunctionLiteral>()
+                .unwrap();
+            assert_eq!(f.parameters.len(), t.1.len());
+            for (i, p) in f.parameters.iter().enumerate() {
+                assert_eq!(p.value, t.1[i]);
+            }
+        }
     }
 }

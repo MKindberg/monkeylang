@@ -201,6 +201,27 @@ impl_traits!(
     }
 );
 
+pub struct FunctionLiteral {
+    pub token: Token,
+    pub parameters: Vec<Identifier>,
+    pub body: Box<dyn Statement>,
+}
+impl_traits!(
+    FunctionLiteral,
+    Expression,
+    fn to_string(&self) -> String {
+        format!(
+            "fn ({}) {}",
+            self.parameters
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.body.to_string()
+        )
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
