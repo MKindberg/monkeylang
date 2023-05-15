@@ -31,7 +31,7 @@ impl Precedence {
     }
 }
 
-struct Parser {
+pub struct Parser {
     l: Lexer,
     current_token: Token,
     peek_token: Token,
@@ -41,7 +41,7 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(l: Lexer) -> Parser {
+    pub fn new(l: Lexer) -> Parser {
         let mut p = Parser {
             l,
             current_token: Token::EOF,
@@ -302,7 +302,7 @@ impl Parser {
             self.peek_token.to_string()
         ));
     }
-    fn errors(&self) -> Vec<String> {
+    pub fn errors(&self) -> Vec<String> {
         return self.errors.clone();
     }
 
@@ -410,7 +410,7 @@ impl Parser {
         }
     }
 
-    fn parse_program(&mut self) -> Option<ast::Program> {
+    pub fn parse_program(&mut self) -> ast::Program {
         let mut statements: Vec<Box<dyn ast::Statement>> = vec![];
         while self.current_token != Token::EOF {
             let stmt = self.parse_statement();
@@ -419,7 +419,7 @@ impl Parser {
             }
             self.next_token();
         }
-        return Some(ast::Program { statements });
+        return ast::Program { statements };
     }
 }
 
@@ -443,9 +443,8 @@ mod tests {
         let l = Lexer::new(input.to_string());
         let mut p = Parser::new(l);
         let program = p.parse_program();
-        assert!(program.is_some());
         check_parser_errors(p);
-        return program.unwrap();
+        return program;
     }
 
     #[test]

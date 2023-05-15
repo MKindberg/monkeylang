@@ -1,8 +1,22 @@
 use crate::lexer::Lexer;
+use crate::parser::Parser;
 use crate::token::Token;
 use std::io::Write;
 
 const PROMPT: &str = ">> ";
+
+const MONKEY_FACE: &str = r#"            __,__
+   .--.  .-"     "-.  .--.
+  / .. \/  .-. .-.  \/ .. \
+ | |  '|  /   Y   \  |'  | |
+ | \   \  \ 0 | 0 /  /   / |
+  \ '- ,\.-"""""""-./, -' /
+   ''-' /_   ^ ^   _\ '-''
+       |  \._   _./  |
+       \   \ '~' /   /
+        '._ '-=-' _.'
+           '-----'
+"#;
 
 pub fn start() {
     loop {
@@ -13,11 +27,18 @@ pub fn start() {
         if read == 0 {
             break;
         }
-        let mut lexer = Lexer::new(input.trim().to_string());
-        let mut token = lexer.next_token();
-        while token != Token::EOF {
-            println!("{:?}", token);
-            token = lexer.next_token();
+        let lexer = Lexer::new(input.trim().to_string());
+        let mut parser = crate::parser::Parser::new(lexer);
+        let program = parser.parse_program();
+        let errors = parser.errors();
+        if errors.len() > 0 {
+            println!("{}", MONKEY_FACE);
+            println!("Woops! We ran into some monkey business here!");
+            println!("parser errors:");
+            for e in errors.iter() {
+                println!("{}", e);
+            }
         }
+        println!("{:?}", program.to_string());
     }
 }
