@@ -25,6 +25,7 @@ impl Precedence {
             Token::LT | Token::GT => Precedence::LESSGREATER,
             Token::PLUS | Token::MINUS => Precedence::SUM,
             Token::SLASH | Token::ASTERISK => Precedence::PRODUCT,
+            Token::LPAREN => Precedence::CALL,
             _ => Precedence::LOWEST,
         }
     }
@@ -59,7 +60,7 @@ impl Parser {
         p.register_prefix(Token::FALSE, Parser::parse_boolean);
         p.register_prefix(Token::LPAREN, Parser::parse_grouped_expression);
         p.register_prefix(Token::IF, Parser::parse_if_expression);
-        p.register_prefix(Token::FUNCTION, Parser::parse_fucntion_literal);
+        p.register_prefix(Token::FUNCTION, Parser::parse_function_literal);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -69,6 +70,7 @@ impl Parser {
         p.register_infix(Token::NEQ, Parser::parse_infix_expression);
         p.register_infix(Token::LT, Parser::parse_infix_expression);
         p.register_infix(Token::GT, Parser::parse_infix_expression);
+        p.register_infix(Token::LPAREN, Parser::parse_call_expression);
 
         return p;
     }
@@ -226,7 +228,7 @@ impl Parser {
         return Some(params);
     }
 
-    fn parse_fucntion_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
+    fn parse_function_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
         let token = self.current_token.clone();
         if !self.expect_peek(Token::LPAREN) {
             return None;
@@ -242,6 +244,41 @@ impl Parser {
             token,
             parameters: params,
             body,
+        }));
+    }
+
+    fn parse_call_arguments(&mut self) -> Option<Vec<Box<dyn ast::Expression>>> {
+        let mut args = vec![];
+        if self.peek_token == Token::RPAREN {
+            self.next_token();
+            return Some(args);
+        }
+
+        self.next_token();
+        args.push(self.parse_expression(Precedence::LOWEST)?);
+
+        while self.peek_token == Token::COMMA {
+            self.next_token();
+            self.next_token();
+            args.push(self.parse_expression(Precedence::LOWEST)?);
+        }
+
+        if !self.expect_peek(Token::RPAREN) {
+            return None;
+        }
+        return Some(args);
+    }
+
+    fn parse_call_expression(
+        &mut self,
+        function: Box<dyn ast::Expression>,
+    ) -> Option<Box<dyn ast::Expression>> {
+        let token = self.current_token.clone();
+        let arguments = self.parse_call_arguments()?;
+        return Some(Box::new(ast::CallExpression {
+            token,
+            function,
+            arguments,
         }));
     }
 
@@ -290,20 +327,20 @@ impl Parser {
     fn parse_let_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
         if self.expect_peek(Token::IDENT(None)) && let Token::IDENT(Some(name)) = self.current_token.clone() {
             if self.expect_peek(Token::ASSIGN) {
-                while self.peek_token != Token::SEMICOLON {
+                self.next_token();
+                let value = self.parse_expression(Precedence::LOWEST)?;
+
+                if self.peek_token == Token::SEMICOLON {
                     self.next_token();
                 }
-                self.next_token();
+
                 return Some(Box::new(ast::LetStatement {
                     token: Token::LET,
                     name: ast::Identifier {
                         token: Token::IDENT(Some(name.to_string())),
                         value: name.to_string(),
                     },
-                    value: Box::new(ast::Identifier {
-                        token: Token::IDENT(None),
-                        value: "".to_string(),
-                    }),
+                    value,
                 }));
             }
         }
@@ -313,17 +350,15 @@ impl Parser {
     fn parse_return_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
         self.next_token();
 
-        while self.peek_token != Token::SEMICOLON {
+        let value = self.parse_expression(Precedence::LOWEST)?;
+
+        if self.peek_token == Token::SEMICOLON {
             self.next_token();
         }
-        self.next_token();
 
         return Some(Box::new(ast::ReturnStatement {
             token: Token::RETURN,
-            value: Box::new(ast::Identifier {
-                token: Token::IDENT(None),
-                value: "".to_string(),
-            }),
+            value,
         }));
     }
 
@@ -417,19 +452,66 @@ mod tests {
     fn test_let_statements() {
         let input = "
         let x = 5;
-        let y = 10;
-        let foobar = 838383;
+        let y = true;
+        let foobar = y;
 ";
         let program = read_program(input);
 
-        let identifiers = ["x", "y", "foobar"];
-        assert_eq!(&program.statements.len(), &identifiers.len());
+        assert_eq!(&program.statements.len(), &3);
 
-        for (s, i) in program.statements.iter().zip(identifiers.iter()) {
-            assert_eq!(s.token_literal(), Token::LET.to_string());
-            let l = s.as_any().downcast_ref::<LetStatement>().unwrap();
-            assert_eq!(l.name.value, i.to_string());
-        }
+        let s = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<LetStatement>()
+            .unwrap();
+        assert_eq!(s.token_literal(), Token::LET.to_string());
+        assert_eq!(s.name.value, "x".to_string());
+        assert_eq!(
+            s.value
+                .as_any()
+                .downcast_ref::<ast::IntegerLiteral>()
+                .unwrap()
+                .value,
+            5
+        );
+
+        let s = program
+            .statements
+            .get(1)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<LetStatement>()
+            .unwrap();
+        assert_eq!(s.token_literal(), Token::LET.to_string());
+        assert_eq!(s.name.value, "y".to_string());
+        assert_eq!(
+            s.value
+                .as_any()
+                .downcast_ref::<ast::Boolean>()
+                .unwrap()
+                .value,
+            true
+        );
+
+        let s = program
+            .statements
+            .get(2)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<LetStatement>()
+            .unwrap();
+        assert_eq!(s.token_literal(), Token::LET.to_string());
+        assert_eq!(s.name.value, "foobar".to_string());
+        assert_eq!(
+            s.value
+                .as_any()
+                .downcast_ref::<ast::Identifier>()
+                .unwrap()
+                .value,
+            "y"
+        );
     }
 
     fn test_integer_literal(input: &Box<dyn Expression>, value: i64) {
@@ -494,12 +576,14 @@ return 10;
 return 993322;";
         let program = read_program(input);
 
-        assert_eq!(&program.statements.len(), &3);
+        let values = [5, 10, 993322];
+        assert_eq!(&program.statements.len(), &values.len());
 
-        for s in program.statements.iter() {
+        for (s, v) in program.statements.iter().zip(values.iter()) {
             assert_eq!(s.token_literal(), "return".to_string());
             let r = s.as_any().downcast_ref::<ast::ReturnStatement>().unwrap();
             assert_eq!(r.token, Token::RETURN);
+            test_literal_expression(&r.value, v);
         }
     }
 
@@ -738,6 +822,15 @@ return 993322;";
             ("2 / (5 + 5)", "(2 / (5 + 5))"),
             ("-(5 + 5)", "(-(5 + 5))"),
             ("!(true == true)", "(!(true == true))"),
+            ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
+            (
+                "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
+                "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            ),
+            (
+                "add(a + b + c * d / f + g)",
+                "add((((a + b) + ((c * d) / f)) + g))",
+            ),
         ];
         for t in tests.iter() {
             let program = read_program(t.0);
@@ -906,5 +999,32 @@ return 993322;";
                 assert_eq!(p.value, t.1[i]);
             }
         }
+    }
+
+    #[test]
+    fn test_call_expression_parsing() {
+        let input = "add(1, 2 * 3, 4 + 5);";
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+
+        let e = program
+            .statements
+            .get(0)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ExpressionStatement>()
+            .unwrap()
+            .expression
+            .as_any()
+            .downcast_ref::<ast::CallExpression>()
+            .unwrap();
+
+        test_literal_expression(&e.function, &"add");
+        assert_eq!(e.arguments.len(), 3);
+
+        test_literal_expression(&e.arguments.get(0).unwrap(), &1);
+        test_infix_expression(&e.arguments.get(1).unwrap(), &2, &"*", &3);
+        test_infix_expression(&e.arguments.get(2).unwrap(), &4, &"+", &5);
     }
 }

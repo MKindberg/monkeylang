@@ -222,6 +222,27 @@ impl_traits!(
     }
 );
 
+pub struct CallExpression {
+    pub token: Token,
+    pub function: Box<dyn Expression>,
+    pub arguments: Vec<Box<dyn Expression>>,
+}
+impl_traits!(
+    CallExpression,
+    Expression,
+    fn to_string(&self) -> String {
+        format!(
+            "{}({})",
+            self.function.to_string(),
+            self.arguments
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
