@@ -1,11 +1,11 @@
-use crate::ast;
+use crate::ast::{self, Expression, Statement};
 use crate::lexer::Lexer;
 use crate::token::Token;
 
 use std::collections::HashMap;
 
-type PrefixParseFn = fn(&mut Parser) -> Option<Box<dyn ast::Expression>>;
-type InfixParseFn = fn(&mut Parser, Box<dyn ast::Expression>) -> Option<Box<dyn ast::Expression>>;
+type PrefixParseFn = fn(&mut Parser) -> Option<Expression>;
+type InfixParseFn = fn(&mut Parser, Expression) -> Option<Expression>;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
@@ -75,15 +75,15 @@ impl Parser {
         return p;
     }
 
-    fn parse_identifier(&mut self) -> Option<Box<dyn ast::Expression>> {
-        return Some(Box::new(ast::Identifier {
+    fn parse_identifier(&mut self) -> Option<Expression> {
+        return Some(Expression::Identifier(ast::Identifier {
             token: self.current_token.clone(),
             value: self.current_token.to_string(),
         }));
     }
 
-    fn parse_integer_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
-        return Some(Box::new(ast::IntegerLiteral {
+    fn parse_integer_literal(&mut self) -> Option<Expression> {
+        return Some(Expression::IntegerLiteral(ast::IntegerLiteral {
             token: self.current_token.clone(),
             value: match self.current_token.clone() {
                 Token::INT(n) => n.unwrap(),
@@ -98,8 +98,8 @@ impl Parser {
         }));
     }
 
-    fn parse_boolean(&mut self) -> Option<Box<dyn ast::Expression>> {
-        return Some(Box::new(ast::Boolean {
+    fn parse_boolean(&mut self) -> Option<Expression> {
+        return Some(Expression::Boolean(ast::Boolean {
             token: self.current_token.clone(),
             value: match self.current_token.clone() {
                 Token::TRUE => true,
@@ -115,34 +115,31 @@ impl Parser {
         }));
     }
 
-    fn parse_prefix_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+    fn parse_prefix_expression(&mut self) -> Option<Expression> {
         let token = self.current_token.clone();
         self.next_token();
         let right = self.parse_expression(Precedence::PREFIX)?;
-        return Some(Box::new(ast::PrefixExpression {
+        return Some(Expression::PrefixExpression(ast::PrefixExpression {
             token: token.clone(),
             operator: token.to_string(),
-            right,
+            right: Box::new(right),
         }));
     }
 
-    fn parse_infix_expression(
-        &mut self,
-        left: Box<dyn ast::Expression>,
-    ) -> Option<Box<dyn ast::Expression>> {
+    fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
         let token = self.current_token.clone();
         let precedence = self.current_precedence();
         self.next_token();
         let right = self.parse_expression(precedence)?;
-        return Some(Box::new(ast::InfixExpression {
+        return Some(Expression::InfixExpression(ast::InfixExpression {
             token: token.clone(),
-            left,
+            left: Box::new(left),
             operator: token.to_string(),
-            right,
+            right: Box::new(right),
         }));
     }
 
-    fn parse_grouped_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+    fn parse_grouped_expression(&mut self) -> Option<Expression> {
         self.next_token();
 
         let exp = self.parse_expression(Precedence::LOWEST)?;
@@ -152,7 +149,7 @@ impl Parser {
         return Some(exp);
     }
 
-    fn parse_block_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+    fn parse_block_statement(&mut self) -> Option<Statement> {
         let mut stmts = vec![];
         let token = self.current_token.clone();
         self.next_token();
@@ -162,13 +159,13 @@ impl Parser {
             }
             self.next_token();
         }
-        return Some(Box::new(ast::BlockStatement {
+        return Some(Statement::BlockStatement(ast::BlockStatement {
             token,
             statements: stmts,
         }));
     }
 
-    fn parse_if_expression(&mut self) -> Option<Box<dyn ast::Expression>> {
+    fn parse_if_expression(&mut self) -> Option<Expression> {
         let token = self.current_token.clone();
         if !self.expect_peek(Token::LPAREN) {
             return None;
@@ -193,9 +190,9 @@ impl Parser {
         } else {
             None
         };
-        return Some(Box::new(ast::IfExpression {
+        return Some(Expression::IfExpression(ast::IfExpression {
             token,
-            condition,
+            condition: Box::new(condition),
             consequence,
             alternative,
         }));
@@ -228,7 +225,7 @@ impl Parser {
         return Some(params);
     }
 
-    fn parse_function_literal(&mut self) -> Option<Box<dyn ast::Expression>> {
+    fn parse_function_literal(&mut self) -> Option<Expression> {
         let token = self.current_token.clone();
         if !self.expect_peek(Token::LPAREN) {
             return None;
@@ -240,14 +237,14 @@ impl Parser {
             return None;
         }
         let body = self.parse_block_statement()?;
-        return Some(Box::new(ast::FunctionLiteral {
+        return Some(Expression::FunctionLiteral(ast::FunctionLiteral {
             token,
             parameters: params,
             body,
         }));
     }
 
-    fn parse_call_arguments(&mut self) -> Option<Vec<Box<dyn ast::Expression>>> {
+    fn parse_call_arguments(&mut self) -> Option<Vec<Expression>> {
         let mut args = vec![];
         if self.peek_token == Token::RPAREN {
             self.next_token();
@@ -269,15 +266,12 @@ impl Parser {
         return Some(args);
     }
 
-    fn parse_call_expression(
-        &mut self,
-        function: Box<dyn ast::Expression>,
-    ) -> Option<Box<dyn ast::Expression>> {
+    fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
         let token = self.current_token.clone();
         let arguments = self.parse_call_arguments()?;
-        return Some(Box::new(ast::CallExpression {
+        return Some(Expression::CallExpression(ast::CallExpression {
             token,
-            function,
+            function: Box::new(function),
             arguments,
         }));
     }
@@ -324,7 +318,7 @@ impl Parser {
         return Precedence::get_precedence(&self.current_token);
     }
 
-    fn parse_let_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+    fn parse_let_statement(&mut self) -> Option<Statement> {
         if self.expect_peek(Token::IDENT(None)) && let Token::IDENT(Some(name)) = self.current_token.clone() {
             if self.expect_peek(Token::ASSIGN) {
                 self.next_token();
@@ -334,20 +328,20 @@ impl Parser {
                     self.next_token();
                 }
 
-                return Some(Box::new(ast::LetStatement {
+                return Some(Statement::LetStatement(ast::LetStatement {
                     token: Token::LET,
                     name: ast::Identifier {
                         token: Token::IDENT(Some(name.to_string())),
                         value: name.to_string(),
                     },
-                    value,
+                    value: Box::new(value),
                 }));
             }
         }
         return None;
     }
 
-    fn parse_return_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+    fn parse_return_statement(&mut self) -> Option<Statement> {
         self.next_token();
 
         let value = self.parse_expression(Precedence::LOWEST)?;
@@ -356,13 +350,13 @@ impl Parser {
             self.next_token();
         }
 
-        return Some(Box::new(ast::ReturnStatement {
+        return Some(Statement::ReturnStatement(ast::ReturnStatement {
             token: Token::RETURN,
-            value,
+            value: Box::new(value),
         }));
     }
 
-    fn parse_expression(&mut self, precedence: Precedence) -> Option<Box<dyn ast::Expression>> {
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let prefix = self.prefix_parse_fns.get(&self.current_token);
         let mut left = if let Some(prefix) = prefix {
             prefix(self)
@@ -385,7 +379,7 @@ impl Parser {
         return left;
     }
 
-    fn parse_expression_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+    fn parse_expression_statement(&mut self) -> Option<Statement> {
         let tok = self.current_token.clone();
         let expr = self.parse_expression(Precedence::LOWEST);
 
@@ -394,15 +388,15 @@ impl Parser {
         }
 
         if let Some(e) = expr {
-            return Some(Box::new(ast::ExpressionStatement {
+            return Some(Statement::ExpressionStatement(ast::ExpressionStatement {
                 token: tok,
-                expression: e,
+                expression: Box::new(e),
             }));
         }
         return None;
     }
 
-    fn parse_statement(&mut self) -> Option<Box<dyn ast::Statement>> {
+    fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token {
             Token::LET => self.parse_let_statement(),
             Token::RETURN => self.parse_return_statement(),
@@ -411,7 +405,7 @@ impl Parser {
     }
 
     pub fn parse_program(&mut self) -> ast::Program {
-        let mut statements: Vec<Box<dyn ast::Statement>> = vec![];
+        let mut statements: Vec<Statement> = vec![];
         while self.current_token != Token::EOF {
             let stmt = self.parse_statement();
             if let Some(stmt) = stmt {
@@ -426,7 +420,9 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expression, ExpressionStatement, LetStatement, Node, Program};
+    use crate::ast::Expression;
+    use crate::ast::Program;
+    use crate::ast::Node;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -458,113 +454,103 @@ mod tests {
 
         assert_eq!(&program.statements.len(), &3);
 
-        let s = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<LetStatement>()
-            .unwrap();
-        assert_eq!(s.token_literal(), Token::LET.to_string());
-        assert_eq!(s.name.value, "x".to_string());
-        assert_eq!(
-            s.value
-                .as_any()
-                .downcast_ref::<ast::IntegerLiteral>()
-                .unwrap()
-                .value,
-            5
-        );
+        if let Statement::LetStatement(s) = &program.statements[0] {
+            assert_eq!(s.token_literal(), Token::LET.to_string());
+            assert_eq!(s.name.value, "x".to_string());
+            if let Expression::IntegerLiteral(i) = &*s.value {
+                assert_eq!(i.value, 5);
+            } else {
+                panic!("not an integer literal");
+            }
+        } else {
+            panic!("not a let statement");
+        }
 
-        let s = program
-            .statements
-            .get(1)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<LetStatement>()
-            .unwrap();
-        assert_eq!(s.token_literal(), Token::LET.to_string());
-        assert_eq!(s.name.value, "y".to_string());
-        assert_eq!(
-            s.value
-                .as_any()
-                .downcast_ref::<ast::Boolean>()
-                .unwrap()
-                .value,
-            true
-        );
+        if let Statement::LetStatement(s) = &program.statements[1] {
+            assert_eq!(s.token_literal(), Token::LET.to_string());
+            assert_eq!(s.name.value, "y".to_string());
+            if let Expression::Boolean(b) = &*s.value {
+                assert_eq!(b.value, true);
+            } else {
+                panic!("not an boolean");
+            }
+        } else {
+            panic!("not a let statement");
+        }
 
-        let s = program
-            .statements
-            .get(2)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<LetStatement>()
-            .unwrap();
-        assert_eq!(s.token_literal(), Token::LET.to_string());
-        assert_eq!(s.name.value, "foobar".to_string());
-        assert_eq!(
-            s.value
-                .as_any()
-                .downcast_ref::<ast::Identifier>()
-                .unwrap()
-                .value,
-            "y"
-        );
+        if let Statement::LetStatement(s) = &program.statements[2] {
+            assert_eq!(s.token_literal(), Token::LET.to_string());
+            assert_eq!(s.name.value, "foobar".to_string());
+            if let Expression::Identifier(i) = &*s.value {
+                assert_eq!(i.value, "y");
+            } else {
+                panic!("not an identifier");
+            }
+        } else {
+            panic!("not a let statement");
+        }
     }
 
-    fn test_integer_literal(input: &Box<dyn Expression>, value: i64) {
-        let i = input
-            .as_any()
-            .downcast_ref::<ast::IntegerLiteral>()
-            .unwrap();
-        assert_eq!(i.value, value);
+    fn test_integer_literal(input: &Expression, value: i64) {
+        if let Expression::IntegerLiteral(i) = input {
+            assert_eq!(i.value, value);
+        } else {
+            panic!("not an integer literal");
+        }
     }
-    fn test_boolean(input: &Box<dyn Expression>, value: bool) {
-        let i = input.as_any().downcast_ref::<ast::Boolean>().unwrap();
-        assert_eq!(i.value, value);
+    fn test_boolean(input: &Expression, value: bool) {
+        if let Expression::Boolean(b) = input {
+            assert_eq!(b.value, value);
+        } else {
+            panic!("not a boolean");
+        }
     }
 
-    fn test_identifier(input: &Box<dyn Expression>, value: &str) {
-        let i = input.as_any().downcast_ref::<ast::Identifier>().unwrap();
-        assert_eq!(i.value, value);
-        assert_eq!(i.token_literal(), value);
+    fn test_identifier(input: &Expression, value: &str) {
+        if let Expression::Identifier(i) = input {
+            assert_eq!(i.value, value);
+        } else {
+            panic!("not an identifier");
+        }
     }
 
     trait TestExpr {
-        fn test(&self, input: &Box<dyn Expression>);
+        fn test(&self, input: &Expression);
     }
     impl TestExpr for i64 {
-        fn test(&self, input: &Box<dyn Expression>) {
+        fn test(&self, input: &Expression) {
             test_integer_literal(input, *self);
         }
     }
     impl TestExpr for &str {
-        fn test(&self, input: &Box<dyn Expression>) {
+        fn test(&self, input: &Expression) {
             test_identifier(input, *self);
         }
     }
     impl TestExpr for bool {
-        fn test(&self, input: &Box<dyn Expression>) {
+        fn test(&self, input: &Expression) {
             test_boolean(input, *self);
         }
     }
-    fn test_literal_expression<T: TestExpr>(input: &Box<dyn Expression>, value: &T) {
+    fn test_literal_expression<T: TestExpr>(input: &Expression, value: &T) {
         value.test(input);
     }
-    fn test_infix_expression<T: TestExpr>(
-        input: &Box<dyn Expression>,
-        left: &T,
-        operator: &str,
-        right: &T,
-    ) {
-        let i = input
-            .as_any()
-            .downcast_ref::<ast::InfixExpression>()
-            .unwrap();
-        test_literal_expression(&i.left, left);
-        assert_eq!(i.operator, operator.to_string());
-        test_literal_expression(&i.right, right);
+    fn test_infix_expression<T: TestExpr>(input: &Expression, left: &T, operator: &str, right: &T) {
+        if let Expression::InfixExpression(i) = input {
+            test_literal_expression(&i.left, left);
+            assert_eq!(i.operator, operator);
+            test_literal_expression(&i.right, right);
+        } else {
+            panic!("not an infix expression");
+        }
+    }
+    fn test_prefix_expression<T: TestExpr>(input: &Expression, operator: &str, right: &T) {
+        if let Expression::PrefixExpression(p) = input {
+            assert_eq!(p.operator, operator);
+            test_literal_expression(&p.right, right);
+        } else {
+            panic!("not an prefix expression");
+        }
     }
 
     #[test]
@@ -579,10 +565,12 @@ return 993322;";
         assert_eq!(&program.statements.len(), &values.len());
 
         for (s, v) in program.statements.iter().zip(values.iter()) {
-            assert_eq!(s.token_literal(), "return".to_string());
-            let r = s.as_any().downcast_ref::<ast::ReturnStatement>().unwrap();
-            assert_eq!(r.token, Token::RETURN);
-            test_literal_expression(&r.value, v);
+            if let Statement::ReturnStatement(r) = s {
+                assert_eq!(r.token, Token::RETURN);
+                test_literal_expression(&r.value, v);
+            } else {
+                panic!("not a return statement");
+            }
         }
     }
 
@@ -593,14 +581,11 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let s = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&s.expression, &"foobar");
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            test_identifier(&s.expression, "foobar");
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -610,14 +595,11 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let s = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&s.expression, &5);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            test_integer_literal(&s.expression, 5);
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -627,14 +609,11 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let s = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&s.expression, &true);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            test_boolean(&s.expression, true);
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -678,40 +657,22 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let e = program
-                .statements
-                .get(0)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<ast::ExpressionStatement>()
-                .unwrap()
-                .expression
-                .as_any()
-                .downcast_ref::<ast::PrefixExpression>()
-                .unwrap();
-            assert_eq!(e.operator, t.operator.to_string());
-
-            test_literal_expression(&e.right, &t.value);
+            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+                test_prefix_expression(&s.expression, &t.operator, &t.value);
+            } else {
+                panic!("not an expression statement");
+            }
         }
 
         for t in bool_tests.iter() {
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let e = program
-                .statements
-                .get(0)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<ast::ExpressionStatement>()
-                .unwrap()
-                .expression
-                .as_any()
-                .downcast_ref::<ast::PrefixExpression>()
-                .unwrap();
-            assert_eq!(e.operator, t.operator.to_string());
-
-            test_literal_expression(&e.right, &t.value);
+            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+                test_prefix_expression(&s.expression, &t.operator, &t.value);
+            } else {
+                panic!("not an expression statement");
+            }
         }
     }
 
@@ -769,28 +730,22 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let s = program.statements.get(0).unwrap();
-            let e = &s
-                .as_any()
-                .downcast_ref::<ast::ExpressionStatement>()
-                .unwrap()
-                .expression;
-
-            test_infix_expression(&e, &t.left, t.operator.as_str(), &t.right);
+            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+                test_infix_expression(&s.expression, &t.left, t.operator.as_str(), &t.right);
+            } else {
+                panic!("not an expression statement");
+            }
         }
 
         for t in bool_tests.iter() {
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            let s = program.statements.get(0).unwrap();
-            let e = &s
-                .as_any()
-                .downcast_ref::<ast::ExpressionStatement>()
-                .unwrap()
-                .expression;
-
-            test_infix_expression(&e, &t.left, t.operator.as_str(), &t.right);
+            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+                test_infix_expression(&s.expression, &t.left, t.operator.as_str(), &t.right);
+            } else {
+                panic!("not an expression statement");
+            }
         }
     }
 
@@ -851,34 +806,26 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let s = program.statements.get(0).unwrap();
-        assert_eq!(s.token_literal(), "if");
-        let if_exp = &s
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap()
-            .expression
-            .as_any()
-            .downcast_ref::<ast::IfExpression>()
-            .unwrap();
-        test_infix_expression(&if_exp.condition, &"x", &"<", &"y");
-
-        let if_branch = if_exp
-            .consequence
-            .as_any()
-            .downcast_ref::<ast::BlockStatement>()
-            .unwrap();
-        assert_eq!(if_branch.statements.len(), 1);
-        let e = if_branch
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&e.expression, &"x");
-
-        assert!(if_exp.alternative.is_none());
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::IfExpression(e) = &*s.expression {
+                test_infix_expression(&e.condition, &"x", &"<", &"y");
+                if let Statement::BlockStatement(b) = &e.consequence {
+                    assert_eq!(b.statements.len(), 1);
+                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
+                        test_literal_expression(&s.expression, &"x");
+                    } else {
+                        panic!("not an expression statement");
+                    }
+                } else {
+                    panic!("not a block statement");
+                }
+                assert!(e.alternative.is_none());
+            } else {
+                panic!("not an if expression");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -888,48 +835,35 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let s = program.statements.get(0).unwrap();
-        assert_eq!(s.token_literal(), "if");
-        let if_exp = &s
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap()
-            .expression
-            .as_any()
-            .downcast_ref::<ast::IfExpression>()
-            .unwrap();
-        test_infix_expression(&if_exp.condition, &"x", &"<", &"y");
-
-        let if_branch = if_exp
-            .consequence
-            .as_any()
-            .downcast_ref::<ast::BlockStatement>()
-            .unwrap();
-        assert_eq!(if_branch.statements.len(), 1);
-        let e = if_branch
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&e.expression, &"x");
-
-        assert!(if_exp.alternative.is_some());
-        let if_branch = if_exp
-            .consequence
-            .as_any()
-            .downcast_ref::<ast::BlockStatement>()
-            .unwrap();
-        assert_eq!(if_branch.statements.len(), 1);
-        let e = if_branch
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap();
-        test_literal_expression(&e.expression, &"x");
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::IfExpression(e) = &*s.expression {
+                test_infix_expression(&e.condition, &"x", &"<", &"y");
+                if let Statement::BlockStatement(b) = &e.consequence {
+                    assert_eq!(b.statements.len(), 1);
+                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
+                        test_literal_expression(&s.expression, &"x");
+                    } else {
+                        panic!("not an expression statement");
+                    }
+                } else {
+                    panic!("not a block statement");
+                }
+                if let Some(Statement::BlockStatement(b)) = &e.alternative {
+                    assert_eq!(b.statements.len(), 1);
+                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
+                        test_literal_expression(&s.expression, &"y");
+                    } else {
+                        panic!("not an expression statement");
+                    }
+                } else {
+                    panic!("not a block statement");
+                }
+            } else {
+                panic!("not an if expression");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -939,36 +873,29 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        let f = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ast::ExpressionStatement>()
-            .unwrap()
-            .expression
-            .as_any()
-            .downcast_ref::<ast::FunctionLiteral>()
-            .unwrap();
 
-        assert_eq!(f.parameters.len(), 2);
-        assert_eq!(&f.parameters.get(0).unwrap().value, &"x");
-        assert_eq!(&f.parameters.get(1).unwrap().value, &"y");
+        if let Statement::ExpressionStatement(e) = &program.statements[0] {
+            if let Expression::FunctionLiteral(f) = &*e.expression {
+                assert_eq!(f.parameters.len(), 2);
+                assert_eq!(&f.parameters[0].value, &"x");
+                assert_eq!(&f.parameters[1].value, &"y");
 
-        let b = f
-            .body
-            .as_any()
-            .downcast_ref::<ast::BlockStatement>()
-            .unwrap();
-        assert_eq!(b.statements.len(), 1);
-        let e = b
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ExpressionStatement>()
-            .unwrap();
-        test_infix_expression(&e.expression, &"x", &"+", &"y");
+                if let Statement::BlockStatement(b) = &f.body {
+                    assert_eq!(b.statements.len(), 1);
+                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
+                        test_infix_expression(&s.expression, &"x", &"+", &"y");
+                    } else {
+                        panic!("not an expression statement");
+                    }
+                } else {
+                    panic!("not a block statement");
+                }
+            } else {
+                panic!("not a function literal");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
     }
 
     #[test]
@@ -982,20 +909,18 @@ return 993322;";
         for t in tests.iter() {
             let program = read_program(t.0);
             assert_eq!(program.statements.len(), 1);
-            let f = program
-                .statements
-                .get(0)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<ast::ExpressionStatement>()
-                .unwrap()
-                .expression
-                .as_any()
-                .downcast_ref::<ast::FunctionLiteral>()
-                .unwrap();
-            assert_eq!(f.parameters.len(), t.1.len());
-            for (i, p) in f.parameters.iter().enumerate() {
-                assert_eq!(p.value, t.1[i]);
+
+            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+                if let Expression::FunctionLiteral(f) = &*s.expression {
+                    assert_eq!(f.parameters.len(), t.1.len());
+                    for (i, p) in f.parameters.iter().enumerate() {
+                        assert_eq!(p.value, t.1[i]);
+                    }
+                } else {
+                    panic!("not a function literal");
+                }
+            } else {
+                panic!("not an expression statement");
             }
         }
     }
@@ -1007,23 +932,19 @@ return 993322;";
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
 
-        let e = program
-            .statements
-            .get(0)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ExpressionStatement>()
-            .unwrap()
-            .expression
-            .as_any()
-            .downcast_ref::<ast::CallExpression>()
-            .unwrap();
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::CallExpression(e) = &*s.expression {
+                test_literal_expression(&e.function, &"add");
+                assert_eq!(e.arguments.len(), 3);
 
-        test_literal_expression(&e.function, &"add");
-        assert_eq!(e.arguments.len(), 3);
-
-        test_literal_expression(&e.arguments.get(0).unwrap(), &1);
-        test_infix_expression(&e.arguments.get(1).unwrap(), &2, &"*", &3);
-        test_infix_expression(&e.arguments.get(2).unwrap(), &4, &"+", &5);
+                test_literal_expression(&e.arguments[0], &1);
+                test_infix_expression(&e.arguments[1], &2, &"*", &3);
+                test_infix_expression(&e.arguments[2], &4, &"+", &5);
+            } else {
+                panic!("not a call expression");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
     }
 }

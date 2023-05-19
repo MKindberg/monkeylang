@@ -1,37 +1,74 @@
 use crate::token::Token;
-use std::any::Any;
 
 pub trait Node {
     fn token_literal(&self) -> String;
-    fn as_any(&self) -> &dyn Any;
     fn to_string(&self) -> String;
 }
 
-pub trait Statement: Node {
-    // fn statement_node(&self);
+pub enum Expression {
+    IntegerLiteral(IntegerLiteral),
+    PrefixExpression(PrefixExpression),
+    InfixExpression(InfixExpression),
+    Boolean(Boolean),
+    IfExpression(IfExpression),
+    FunctionLiteral(FunctionLiteral),
+    CallExpression(CallExpression),
+    Identifier(Identifier),
+}
+impl Expression {
+    pub fn to_string(&self) -> String {
+        match self {
+            Expression::IntegerLiteral(i) => i.to_string(),
+            Expression::PrefixExpression(p) => p.to_string(),
+            Expression::InfixExpression(i) => i.to_string(),
+            Expression::Boolean(b) => b.to_string(),
+            Expression::IfExpression(i) => i.to_string(),
+            Expression::FunctionLiteral(f) => f.to_string(),
+            Expression::CallExpression(c) => c.to_string(),
+            Expression::Identifier(i) => i.to_string(),
+        }
+    }
 }
 
-pub trait Expression: Node {
-    // fn expression_node(&self);
+pub enum Statement {
+    LetStatement(LetStatement),
+    ReturnStatement(ReturnStatement),
+    ExpressionStatement(ExpressionStatement),
+    BlockStatement(BlockStatement),
+}
+
+impl Statement {
+    pub fn to_string(&self) -> String {
+        match self {
+            Statement::LetStatement(s) => s.to_string(),
+            Statement::ReturnStatement(s) => s.to_string(),
+            Statement::ExpressionStatement(s) => s.to_string(),
+            Statement::BlockStatement(s) => s.to_string(),
+        }
+    }
+    pub fn token_literal(&self) -> String {
+        match self {
+            Statement::LetStatement(s) => s.token_literal(),
+            Statement::ReturnStatement(s) => s.token_literal(),
+            Statement::ExpressionStatement(s) => s.token_literal(),
+            Statement::BlockStatement(s) => s.token_literal(),
+        }
+    }
 }
 
 macro_rules! impl_traits {
-    ($name:ty, $type:ty, $to_string:item) => {
+    ($name:ty, $to_string:item) => {
         impl Node for $name {
             fn token_literal(&self) -> String {
                 return self.token.to_string();
             }
-            fn as_any(&self) -> &dyn Any {
-                return self;
-            }
             $to_string
         }
-        impl $type for $name {}
     };
 }
 
 pub struct Program {
-    pub statements: Vec<Box<dyn Statement>>,
+    pub statements: Vec<Statement>,
 }
 
 impl Program {
@@ -56,11 +93,10 @@ impl Program {
 pub struct LetStatement {
     pub token: Token,
     pub name: Identifier,
-    pub value: Box<dyn Expression>,
+    pub value: Box<Expression>,
 }
 impl_traits!(
     LetStatement,
-    Statement,
     fn to_string(&self) -> String {
         format!(
             "let {} = {};",
@@ -76,7 +112,6 @@ pub struct Identifier {
 }
 impl_traits!(
     Identifier,
-    Expression,
     fn to_string(&self) -> String {
         self.value.clone()
     }
@@ -84,11 +119,10 @@ impl_traits!(
 
 pub struct ReturnStatement {
     pub token: Token,
-    pub value: Box<dyn Expression>,
+    pub value: Box<Expression>,
 }
 impl_traits!(
     ReturnStatement,
-    Statement,
     fn to_string(&self) -> String {
         format!("return {};", self.value.to_string())
     }
@@ -96,11 +130,10 @@ impl_traits!(
 
 pub struct ExpressionStatement {
     pub token: Token,
-    pub expression: Box<dyn Expression>,
+    pub expression: Box<Expression>,
 }
 impl_traits!(
     ExpressionStatement,
-    Statement,
     fn to_string(&self) -> String {
         self.expression.to_string()
     }
@@ -112,7 +145,6 @@ pub struct IntegerLiteral {
 }
 impl_traits!(
     IntegerLiteral,
-    Expression,
     fn to_string(&self) -> String {
         self.value.to_string()
     }
@@ -121,11 +153,10 @@ impl_traits!(
 pub struct PrefixExpression {
     pub token: Token,
     pub operator: String,
-    pub right: Box<dyn Expression>,
+    pub right: Box<Expression>,
 }
 impl_traits!(
     PrefixExpression,
-    Expression,
     fn to_string(&self) -> String {
         format!("({}{})", self.operator, self.right.to_string())
     }
@@ -133,13 +164,12 @@ impl_traits!(
 
 pub struct InfixExpression {
     pub token: Token,
-    pub left: Box<dyn Expression>,
+    pub left: Box<Expression>,
     pub operator: String,
-    pub right: Box<dyn Expression>,
+    pub right: Box<Expression>,
 }
 impl_traits!(
     InfixExpression,
-    Expression,
     fn to_string(&self) -> String {
         format!(
             "({} {} {})",
@@ -156,7 +186,6 @@ pub struct Boolean {
 }
 impl_traits!(
     Boolean,
-    Expression,
     fn to_string(&self) -> String {
         self.value.to_string()
     }
@@ -164,11 +193,10 @@ impl_traits!(
 
 pub struct BlockStatement {
     pub token: Token,
-    pub statements: Vec<Box<dyn Statement>>,
+    pub statements: Vec<Statement>,
 }
 impl_traits!(
     BlockStatement,
-    Statement,
     fn to_string(&self) -> String {
         self.statements
             .iter()
@@ -180,13 +208,12 @@ impl_traits!(
 
 pub struct IfExpression {
     pub token: Token,
-    pub condition: Box<dyn Expression>,
-    pub consequence: Box<dyn Statement>,
-    pub alternative: Option<Box<dyn Statement>>,
+    pub condition: Box<Expression>,
+    pub consequence: Statement,
+    pub alternative: Option<Statement>,
 }
 impl_traits!(
     IfExpression,
-    Expression,
     fn to_string(&self) -> String {
         format!(
             "if ({}) {} {}",
@@ -204,11 +231,10 @@ impl_traits!(
 pub struct FunctionLiteral {
     pub token: Token,
     pub parameters: Vec<Identifier>,
-    pub body: Box<dyn Statement>,
+    pub body: Statement,
 }
 impl_traits!(
     FunctionLiteral,
-    Expression,
     fn to_string(&self) -> String {
         format!(
             "fn ({}) {}",
@@ -224,12 +250,11 @@ impl_traits!(
 
 pub struct CallExpression {
     pub token: Token,
-    pub function: Box<dyn Expression>,
-    pub arguments: Vec<Box<dyn Expression>>,
+    pub function: Box<Expression>,
+    pub arguments: Vec<Expression>,
 }
 impl_traits!(
     CallExpression,
-    Expression,
     fn to_string(&self) -> String {
         format!(
             "{}({})",
@@ -251,16 +276,16 @@ mod tests {
     #[test]
     fn test_string() {
         let program = Program {
-            statements: vec![Box::new(LetStatement {
+            statements: vec![Statement::LetStatement(LetStatement {
                 token: Token::LET,
                 name: Identifier {
                     token: Token::IDENT(Some("myVar".to_string())),
                     value: "myVar".to_string(),
                 },
-                value: Box::new(Identifier {
+                value: Box::new(Expression::Identifier(Identifier {
                     token: Token::IDENT(Some("anotherVar".to_string())),
                     value: "anotherVar".to_string(),
-                }),
+                })),
             })],
         };
         assert_eq!(program.to_string(), "let myVar = anotherVar;");
