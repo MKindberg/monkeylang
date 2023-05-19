@@ -2,6 +2,7 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::token::Token;
 use std::io::Write;
+use crate::evaluator;
 
 const PROMPT: &str = ">> ";
 
@@ -39,6 +40,9 @@ pub fn start() {
                 println!("{}", e);
             }
         }
-        println!("{:?}", program.to_string());
+        let evaluated = evaluator::eval(&program);
+        if let Some(evaluated) = evaluated {
+            println!("{}", evaluated);
+        }
     }
 }
