@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::token::Token;
+use crate::object::Environment;
 use std::io::Write;
 use crate::evaluator;
 
@@ -20,6 +20,7 @@ const MONKEY_FACE: &str = r#"            __,__
 "#;
 
 pub fn start() {
+    let mut env = Environment::new();
     loop {
         let mut input = String::new();
         print!("{}", PROMPT);
@@ -29,7 +30,7 @@ pub fn start() {
             break;
         }
         let lexer = Lexer::new(input.trim().to_string());
-        let mut parser = crate::parser::Parser::new(lexer);
+        let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let errors = parser.errors();
         if errors.len() > 0 {
@@ -40,7 +41,7 @@ pub fn start() {
                 println!("{}", e);
             }
         }
-        let evaluated = evaluator::eval(&program);
+        let evaluated = evaluator::eval(&program, &mut env);
         println!("{}", evaluated);
     }
 }

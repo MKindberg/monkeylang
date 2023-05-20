@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Object {
     Integer(i64),
     Boolean(bool),
@@ -34,5 +34,25 @@ impl Object {
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string())
+    }
+}
+
+pub struct Environment {
+    store: std::collections::HashMap<String, Object>,
+}
+
+impl Environment {
+    pub fn new() -> Environment {
+        Environment {
+            store: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Object> {
+        self.store.get(name)
+    }
+
+    pub fn set(&mut self, name: String, value: Object) {
+        self.store.insert(name, value);
     }
 }
