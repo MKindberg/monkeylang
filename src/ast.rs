@@ -2,9 +2,9 @@ use crate::token::Token;
 
 pub trait Node {
     fn token_literal(&self) -> String;
-    fn to_string(&self) -> String;
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     IntegerLiteral(IntegerLiteral),
     PrefixExpression(PrefixExpression),
@@ -30,6 +30,7 @@ impl Expression {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     LetStatement(LetStatement),
     ReturnStatement(ReturnStatement),
@@ -62,6 +63,8 @@ macro_rules! impl_traits {
             fn token_literal(&self) -> String {
                 return self.token.to_string();
             }
+        }
+        impl ToString for $name {
             $to_string
         }
     };
@@ -90,6 +93,7 @@ impl Program {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct LetStatement {
     pub token: Token,
     pub name: Identifier,
@@ -106,6 +110,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Identifier {
     pub token: Token,
     pub value: String,
@@ -117,6 +122,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct ReturnStatement {
     pub token: Token,
     pub value: Box<Expression>,
@@ -128,6 +134,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct ExpressionStatement {
     pub token: Token,
     pub expression: Box<Expression>,
@@ -139,6 +146,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct IntegerLiteral {
     pub token: Token,
     pub value: i64,
@@ -150,6 +158,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct PrefixExpression {
     pub token: Token,
     pub operator: String,
@@ -162,6 +171,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct InfixExpression {
     pub token: Token,
     pub left: Box<Expression>,
@@ -180,6 +190,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Boolean {
     pub token: Token,
     pub value: bool,
@@ -191,6 +202,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct BlockStatement {
     pub token: Token,
     pub statements: Vec<Statement>,
@@ -206,11 +218,18 @@ impl_traits!(
     }
 );
 
+impl BlockStatement {
+    pub fn len(&self) -> usize {
+        self.statements.len()
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct IfExpression {
     pub token: Token,
     pub condition: Box<Expression>,
-    pub consequence: Statement,
-    pub alternative: Option<Statement>,
+    pub consequence: BlockStatement,
+    pub alternative: Option<BlockStatement>,
 }
 impl_traits!(
     IfExpression,
@@ -228,10 +247,11 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct FunctionLiteral {
     pub token: Token,
     pub parameters: Vec<Identifier>,
-    pub body: Statement,
+    pub body: BlockStatement,
 }
 impl_traits!(
     FunctionLiteral,
@@ -248,6 +268,7 @@ impl_traits!(
     }
 );
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct CallExpression {
     pub token: Token,
     pub function: Box<Expression>,

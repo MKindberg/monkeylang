@@ -2,6 +2,7 @@ use crate::ast;
 use crate::ast::Expression;
 use crate::ast::Statement;
 use crate::object::Environment;
+use crate::object::Function;
 use crate::object::Object;
 
 pub fn eval(program: &ast::Program, env: &mut Environment) -> Object {
@@ -74,7 +75,12 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
             eval_if_expression(&i.condition, &i.consequence, &i.alternative, env)
         }
         Expression::Identifier(i) => eval_identifier(&i.value, env),
-        _ => Object::Null,
+        Expression::FunctionLiteral(f) => Object::Function(Function::new(
+            f.parameters.clone(),
+            f.body.clone(),
+            env.clone(),
+        )),
+        Expression::CallExpression(c) => eval_call_expression(&c.function, &c.arguments, env),
     }
 }
 
@@ -149,16 +155,19 @@ fn eval_integer_infix_expression(left: &i64, right: &i64, operator: &str) -> Obj
 
 fn eval_if_expression(
     condition: &Expression,
-    consequence: &Statement,
-    alternative: &Option<Statement>,
+    consequence: &ast::BlockStatement,
+    alternative: &Option<ast::BlockStatement>,
     env: &mut Environment,
 ) -> Object {
     let cond = eval_expression(condition, env);
+    if let Object::Error(_) = cond {
+        return cond;
+    }
 
     if is_truthy(cond) {
-        eval_statement(consequence, env)
+        eval_statement(&Statement::BlockStatement(consequence.clone()), env)
     } else if let Some(block) = alternative {
-        eval_statement(block, env)
+        eval_statement(&Statement::BlockStatement(block.clone()), env)
     } else {
         Object::Null
     }
@@ -177,6 +186,57 @@ fn eval_identifier(value: &str, env: &mut Environment) -> Object {
         Some(v) => v.clone(),
         None => Object::Error(format!("identifier not found: {}", value)),
     }
+}
+
+fn eval_call_expression(
+    function: &Expression,
+    arguments: &Vec<Expression>,
+    env: &mut Environment,
+) -> Object {
+    let func = eval_expression(function, env);
+    if let Object::Error(_) = func {
+        return func;
+    }
+    let args = eval_expressions(arguments, env);
+    if let Some(Object::Error(_)) = args.get(0) {
+        return args[0].clone();
+    }
+
+    return apply_function(func, args);
+}
+
+fn eval_expressions(expressions: &Vec<Expression>, env: &mut Environment) -> Vec<Object> {
+    let mut result = Vec::new();
+    for expr in expressions {
+        let evaluated = eval_expression(expr, env);
+        if let Object::Error(_) = evaluated {
+            return vec![evaluated];
+        }
+        result.push(evaluated);
+    }
+    return result;
+}
+
+fn apply_function(func: Object, args: Vec<Object>) -> Object {
+    if let Object::Function(f) = func {
+        let mut extented_env = extended_function_env(&f, args);
+        let evaluated = eval_block_statement(&f.body.statements, &mut extented_env);
+        if let Object::ReturnValue(rv) = evaluated {
+            return *rv;
+        }
+        return evaluated;
+    } else {
+        return Object::Error(format!("not a function: {}", func.type_string()));
+    }
+}
+
+fn extended_function_env(f: &Function, args: Vec<Object>) -> Environment {
+    let mut env = Environment::new_with_outer(f.env.clone());
+    for (i, param) in f.parameters.iter().enumerate() {
+        env.set(param.value.clone(), args[i].clone());
+    }
+
+    return env;
 }
 
 #[cfg(test)]
@@ -338,7 +398,48 @@ mod tests {
         for (input, expected) in tests {
             if let Object::Integer(e) = test_eval(input) {
                 assert_eq!(e, expected);
+            } else {
+                panic!("Error parsing {}", input);
             }
         }
+    }
+
+    #[test]
+    fn test_function_object() {
+        let input = "fn(x) { x + 2; };";
+
+        let evaluated = test_eval(input);
+        if let Object::Function(f) = evaluated {
+            assert_eq!(f.parameters.len(), 1);
+            assert_eq!(&f.parameters[0].value, "x");
+            assert_eq!(f.body.len(), 1);
+            assert_eq!(f.body.to_string(), "(x + 2)");
+        } else {
+            panic!("not a function object");
+        }
+    }
+
+    #[test]
+    fn test_function_application() {
+        let input = vec![
+            ("let identity = fn(x) { x; }; identity(5);", 5),
+            ("let identity = fn(x) { return x; }; identity(5);", 5),
+            ("let double = fn(x) { x * 2; }; double(5);", 10),
+            ("let add = fn(x, y) { x + y; }; add(5, 5);", 10),
+            ("let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));", 20),
+            ("fn(x) { x; }(5)", 5),
+        ];
+
+        for (input, expected) in input {
+            assert_eq!(test_eval(input), Object::Integer(expected));
+        }
+    }
+
+    #[test]
+    fn test_closures() {
+        let input = "let newAdder = fn(x) { fn(y) { x + y; }; };
+            let addTwo = newAdder(2);
+            addTwo(2);";
+        assert_eq!(test_eval(input), Object::Integer(4));
     }
 }

@@ -149,7 +149,7 @@ impl Parser {
         return Some(exp);
     }
 
-    fn parse_block_statement(&mut self) -> Option<Statement> {
+    fn parse_block_statement(&mut self) -> ast::BlockStatement {
         let mut stmts = vec![];
         let token = self.current_token.clone();
         self.next_token();
@@ -159,10 +159,10 @@ impl Parser {
             }
             self.next_token();
         }
-        return Some(Statement::BlockStatement(ast::BlockStatement {
+        return ast::BlockStatement {
             token,
             statements: stmts,
-        }));
+        };
     }
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
@@ -179,14 +179,14 @@ impl Parser {
             return None;
         }
 
-        let consequence = self.parse_block_statement()?;
+        let consequence = self.parse_block_statement();
 
         let alternative = if self.peek_token == Token::ELSE {
             self.next_token();
             if !self.expect_peek(Token::LBRACE) {
                 return None;
             }
-            Some(self.parse_block_statement()?)
+            Some(self.parse_block_statement())
         } else {
             None
         };
@@ -236,7 +236,7 @@ impl Parser {
         if !self.expect_peek(Token::LBRACE) {
             return None;
         }
-        let body = self.parse_block_statement()?;
+        let body = self.parse_block_statement();
         return Some(Expression::FunctionLiteral(ast::FunctionLiteral {
             token,
             parameters: params,
@@ -421,8 +421,8 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::ast::Expression;
-    use crate::ast::Program;
     use crate::ast::Node;
+    use crate::ast::Program;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::token::Token;
@@ -809,15 +809,11 @@ return 993322;";
         if let Statement::ExpressionStatement(s) = &program.statements[0] {
             if let Expression::IfExpression(e) = &*s.expression {
                 test_infix_expression(&e.condition, &"x", &"<", &"y");
-                if let Statement::BlockStatement(b) = &e.consequence {
-                    assert_eq!(b.statements.len(), 1);
-                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
-                        test_literal_expression(&s.expression, &"x");
-                    } else {
-                        panic!("not an expression statement");
-                    }
+                assert_eq!(e.consequence.statements.len(), 1);
+                if let Statement::ExpressionStatement(s) = &e.consequence.statements[0] {
+                    test_literal_expression(&s.expression, &"x");
                 } else {
-                    panic!("not a block statement");
+                    panic!("not an expression statement");
                 }
                 assert!(e.alternative.is_none());
             } else {
@@ -838,17 +834,13 @@ return 993322;";
         if let Statement::ExpressionStatement(s) = &program.statements[0] {
             if let Expression::IfExpression(e) = &*s.expression {
                 test_infix_expression(&e.condition, &"x", &"<", &"y");
-                if let Statement::BlockStatement(b) = &e.consequence {
-                    assert_eq!(b.statements.len(), 1);
-                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
-                        test_literal_expression(&s.expression, &"x");
-                    } else {
-                        panic!("not an expression statement");
-                    }
+                assert_eq!(e.consequence.statements.len(), 1);
+                if let Statement::ExpressionStatement(s) = &e.consequence.statements[0] {
+                    test_literal_expression(&s.expression, &"x");
                 } else {
-                    panic!("not a block statement");
+                    panic!("not an expression statement");
                 }
-                if let Some(Statement::BlockStatement(b)) = &e.alternative {
+                if let Some(b) = &e.alternative {
                     assert_eq!(b.statements.len(), 1);
                     if let Statement::ExpressionStatement(s) = &b.statements[0] {
                         test_literal_expression(&s.expression, &"y");
@@ -880,15 +872,11 @@ return 993322;";
                 assert_eq!(&f.parameters[0].value, &"x");
                 assert_eq!(&f.parameters[1].value, &"y");
 
-                if let Statement::BlockStatement(b) = &f.body {
-                    assert_eq!(b.statements.len(), 1);
-                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
-                        test_infix_expression(&s.expression, &"x", &"+", &"y");
-                    } else {
-                        panic!("not an expression statement");
-                    }
+                assert_eq!(f.body.statements.len(), 1);
+                if let Statement::ExpressionStatement(s) = &f.body.statements[0] {
+                    test_infix_expression(&s.expression, &"x", &"+", &"y");
                 } else {
-                    panic!("not a block statement");
+                    panic!("not an expression statement");
                 }
             } else {
                 panic!("not a function literal");
