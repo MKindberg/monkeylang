@@ -41,8 +41,6 @@ pub fn start() {
             }
         }
         let evaluated = evaluator::eval(&program);
-        if let Some(evaluated) = evaluated {
-            println!("{}", evaluated);
-        }
+        println!("{}", evaluated);
     }
 }

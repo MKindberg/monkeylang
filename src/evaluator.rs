@@ -6,107 +6,129 @@ use crate::object::Object;
 const TRUE: bool = true;
 const FALSE: bool = false;
 
-pub fn eval(program: &ast::Program) -> Option<Object> {
+pub fn eval(program: &ast::Program) -> Object {
     eval_program(&program.statements)
 }
 
-fn eval_statement(statement: &ast::Statement) -> Option<Object> {
+fn eval_statement(statement: &ast::Statement) -> Object {
     match statement {
         Statement::ExpressionStatement(e) => eval_expression(&*e.expression),
         Statement::BlockStatement(b) => eval_block_statement(&*b.statements),
         Statement::ReturnStatement(r) => eval_return_statement(&*r.value),
-        _ => None,
+        _ => Object::Null,
     }
 }
 
-fn eval_program(statements: &[Statement]) -> Option<Object> {
-    let mut result = None;
+fn eval_program(statements: &[Statement]) -> Object {
+    let mut result = Object::Null;
     for statement in statements {
         result = eval_statement(statement);
-        if let Some(Object::ReturnValue(r)) = result {
-            return Some(*r);
+        if let Object::ReturnValue(r) = result {
+            return *r;
         }
-    }
-    result
-}
-
-fn eval_block_statement(statements: &[Statement]) -> Option<Object> {
-    let mut result = None;
-    for statement in statements {
-        result = eval_statement(statement);
-        if let Some(Object::ReturnValue(_)) = result {
+        if let Object::Error(_) = result {
             return result;
         }
     }
     result
 }
 
-fn eval_return_statement(return_value: &Expression) -> Option<Object> {
-    let result = eval_expression(return_value)?;
-    Some(Object::ReturnValue(Box::new(result)))
+fn eval_block_statement(statements: &[Statement]) -> Object {
+    let mut result = Object::Null;
+    for statement in statements {
+        result = eval_statement(statement);
+        if let Object::ReturnValue(_) = result {
+            return result;
+        }
+        if let Object::Error(_) = result {
+            return result;
+        }
+    }
+    result
 }
 
-fn eval_expression(expression: &ast::Expression) -> Option<Object> {
+fn eval_return_statement(return_value: &Expression) -> Object {
+    let result = eval_expression(return_value);
+    if let Object::Error(_) = result {
+        return result;
+    }
+    Object::ReturnValue(Box::new(result))
+}
+
+fn eval_expression(expression: &ast::Expression) -> Object {
     match expression {
-        Expression::IntegerLiteral(i) => Some(Object::Integer(i.value)),
-        Expression::Boolean(b) => Some(Object::Boolean(b.value)),
+        Expression::IntegerLiteral(i) => Object::Integer(i.value),
+        Expression::Boolean(b) => Object::Boolean(b.value),
         Expression::PrefixExpression(p) => eval_prefix_expression(&p.operator, &p.right),
         Expression::InfixExpression(i) => eval_infix_expression(&i.left, &i.operator, &i.right),
         Expression::IfExpression(i) => {
             eval_if_expression(&i.condition, &i.consequence, &i.alternative)
         }
-        _ => None,
+        _ => Object::Null,
     }
 }
 
-fn eval_prefix_expression(operator: &str, right: &Expression) -> Option<Object> {
-    let r = eval_expression(right)?;
-    match operator {
-        "!" => eval_bang_operator_expression(&r),
-        "-" => eval_minus_prefix_operator_expression(&r),
-        _ => None,
+fn eval_prefix_expression(operator: &str, right: &Expression) -> Object {
+    let r = eval_expression(right);
+    if let Object::Error(_) = r {
+        return r;
+    }
+    match (operator, &r) {
+        ("!", _) => eval_bang_operator_expression(&r),
+        ("-", Object::Integer(i)) => Object::Integer(-i),
+        _ => Object::Error(format!("unknown operator: {}{}", operator, r.type_string())),
     }
 }
 
-fn eval_bang_operator_expression(right: &Object) -> Option<Object> {
+fn eval_bang_operator_expression(right: &Object) -> Object {
     match right {
-        Object::Boolean(b) => Some(Object::Boolean(!b)),
-        Object::Null => Some(Object::Boolean(true)),
-        _ => Some(Object::Boolean(false)),
+        Object::Boolean(b) => Object::Boolean(!b),
+        Object::Null => Object::Boolean(true),
+        _ => Object::Boolean(false),
     }
 }
 
-fn eval_minus_prefix_operator_expression(right: &Object) -> Option<Object> {
-    match right {
-        Object::Integer(i) => Some(Object::Integer(-i)),
-        _ => None,
+fn eval_infix_expression(left: &Expression, operator: &str, right: &Expression) -> Object {
+    let l = eval_expression(left);
+    if let Object::Error(_) = l {
+        return l;
     }
-}
-
-fn eval_infix_expression(left: &Expression, operator: &str, right: &Expression) -> Option<Object> {
-    let l = eval_expression(left)?;
-    let r = eval_expression(right)?;
+    let r = eval_expression(right);
+    if let Object::Error(_) = r {
+        return r;
+    }
     match (&l, &r, operator) {
         (Object::Integer(l), Object::Integer(r), _) => {
             eval_integer_infix_expression(&l, &r, operator)
         }
-        (_, _, "==") => Some(Object::Boolean(l == r)),
-        (_, _, "!=") => Some(Object::Boolean(l != r)),
-        _ => None,
+        (_, _, "==") => Object::Boolean(l == r),
+        (_, _, "!=") => Object::Boolean(l != r),
+        (l, r, _) if l.type_string() != r.type_string() => Object::Error(format!(
+            "type mismatch: {} {} {}",
+            l.type_string(),
+            operator,
+            r.type_string()
+        )),
+        _ => Object::Error(format!(
+            "unknown operator: {} {} {}",
+            l.type_string(),
+            operator,
+            r.type_string()
+        )),
     }
 }
 
-fn eval_integer_infix_expression(left: &i64, right: &i64, operator: &str) -> Option<Object> {
+fn eval_integer_infix_expression(left: &i64, right: &i64, operator: &str) -> Object {
     match operator {
-        "+" => Some(Object::Integer(left + right)),
-        "-" => Some(Object::Integer(left - right)),
-        "*" => Some(Object::Integer(left * right)),
-        "/" => Some(Object::Integer(left / right)),
-        "<" => Some(Object::Boolean(left < right)),
-        ">" => Some(Object::Boolean(left > right)),
-        "==" => Some(Object::Boolean(left == right)),
-        "!=" => Some(Object::Boolean(left != right)),
-        _ => None,
+        "+" => Object::Integer(left + right),
+        "-" => Object::Integer(left - right),
+        "*" => Object::Integer(left * right),
+        "/" => Object::Integer(left / right),
+        "<" => Object::Boolean(left < right),
+        ">" => Object::Boolean(left > right),
+        "==" => Object::Boolean(left == right),
+        "!=" => Object::Boolean(left != right),
+        _ => Object::Error(format!("unknown operator: INTEGER {} INTEGER", operator)),
     }
 }
 
@@ -114,15 +136,15 @@ fn eval_if_expression(
     condition: &Expression,
     consequence: &Statement,
     alternative: &Option<Statement>,
-) -> Option<Object> {
-    let cond = eval_expression(condition)?;
+) -> Object {
+    let cond = eval_expression(condition);
 
     if is_truthy(cond) {
         eval_statement(consequence)
     } else if let Some(block) = alternative {
         eval_statement(block)
     } else {
-        Some(Object::Null)
+        Object::Null
     }
 }
 
@@ -141,7 +163,7 @@ mod tests {
     use crate::object::Object;
     use crate::parser::Parser;
 
-    fn test_eval(input: &str) -> Option<Object> {
+    fn test_eval(input: &str) -> Object {
         let lexer = Lexer::new(input.to_string());
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
@@ -169,7 +191,7 @@ mod tests {
             ("(5 + 10 * 2 + 15 / 3) * 2 + -10", 50),
         ];
         for (input, expected) in tests {
-            if let Some(e) = test_eval(input) {
+            if let e = test_eval(input) {
                 assert_eq!(e, Object::Integer(expected));
             } else {
                 panic!("Error parsing {}", input);
@@ -201,7 +223,7 @@ mod tests {
             ("(1 > 2) == false", true),
         ];
         for (input, expected) in tests {
-            if let Some(e) = test_eval(input) {
+            if let e = test_eval(input) {
                 assert_eq!(e, Object::Boolean(expected));
             } else {
                 panic!("Error parsing {}", input);
@@ -221,7 +243,7 @@ mod tests {
         ];
 
         for (input, expected) in tests {
-            if let Some(e) = test_eval(input) {
+            if let e = test_eval(input) {
                 assert_eq!(e, Object::Boolean(expected));
             } else {
                 panic!("Error parsing {}", input);
@@ -242,7 +264,7 @@ mod tests {
         ];
 
         for (input, expected) in tests {
-            if let Some(e) = test_eval(input) {
+            if let e = test_eval(input) {
                 assert_eq!(e, expected);
             } else {
                 panic!("Error parsing {}", input);
@@ -264,8 +286,37 @@ mod tests {
         ];
 
         for (input, expected) in tests {
-            if let Some(e) = test_eval(input) {
+            if let e = test_eval(input) {
                 assert_eq!(e, expected);
+            } else {
+                panic!("Error parsing {}", input);
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_handling() {
+        let tests = vec![
+            ("5 + true;", "type mismatch: INTEGER + BOOLEAN"),
+            ("5 + true; 5;", "type mismatch: INTEGER + BOOLEAN"),
+            ("-true;", "unknown operator: -BOOLEAN"),
+            ("true + false;", "unknown operator: BOOLEAN + BOOLEAN"),
+            ("5; true + false; 5", "unknown operator: BOOLEAN + BOOLEAN"),
+            (
+                "if (10 > 1) { true + false; }",
+                "unknown operator: BOOLEAN + BOOLEAN",
+            ),
+            (
+                "if (10 > 1) { if (10 > 1) { return true + false; } return 1; }",
+                "unknown operator: BOOLEAN + BOOLEAN",
+            ),
+        ];
+
+        for (input, expected) in tests {
+            if let Object::Error(e) = test_eval(input) {
+                assert_eq!(e, expected);
+            } else {
+                panic!("Error parsing {}", input);
             }
         }
     }
