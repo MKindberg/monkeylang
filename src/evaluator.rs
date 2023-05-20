@@ -7,18 +7,43 @@ const TRUE: bool = true;
 const FALSE: bool = false;
 
 pub fn eval(program: &ast::Program) -> Option<Object> {
-    let mut result = None;
-    for statement in &program.statements {
-        result = eval_statement(statement);
-    }
-    return result;
+    eval_program(&program.statements)
 }
 
 fn eval_statement(statement: &ast::Statement) -> Option<Object> {
     match statement {
         Statement::ExpressionStatement(e) => eval_expression(&*e.expression),
+        Statement::BlockStatement(b) => eval_block_statement(&*b.statements),
+        Statement::ReturnStatement(r) => eval_return_statement(&*r.value),
         _ => None,
     }
+}
+
+fn eval_program(statements: &[Statement]) -> Option<Object> {
+    let mut result = None;
+    for statement in statements {
+        result = eval_statement(statement);
+        if let Some(Object::ReturnValue(r)) = result {
+            return Some(*r);
+        }
+    }
+    result
+}
+
+fn eval_block_statement(statements: &[Statement]) -> Option<Object> {
+    let mut result = None;
+    for statement in statements {
+        result = eval_statement(statement);
+        if let Some(Object::ReturnValue(_)) = result {
+            return result;
+        }
+    }
+    result
+}
+
+fn eval_return_statement(return_value: &Expression) -> Option<Object> {
+    let result = eval_expression(return_value)?;
+    Some(Object::ReturnValue(Box::new(result)))
 }
 
 fn eval_expression(expression: &ast::Expression) -> Option<Object> {
@@ -27,6 +52,9 @@ fn eval_expression(expression: &ast::Expression) -> Option<Object> {
         Expression::Boolean(b) => Some(Object::Boolean(b.value)),
         Expression::PrefixExpression(p) => eval_prefix_expression(&p.operator, &p.right),
         Expression::InfixExpression(i) => eval_infix_expression(&i.left, &i.operator, &i.right),
+        Expression::IfExpression(i) => {
+            eval_if_expression(&i.condition, &i.consequence, &i.alternative)
+        }
         _ => None,
     }
 }
@@ -79,6 +107,30 @@ fn eval_integer_infix_expression(left: &i64, right: &i64, operator: &str) -> Opt
         "==" => Some(Object::Boolean(left == right)),
         "!=" => Some(Object::Boolean(left != right)),
         _ => None,
+    }
+}
+
+fn eval_if_expression(
+    condition: &Expression,
+    consequence: &Statement,
+    alternative: &Option<Statement>,
+) -> Option<Object> {
+    let cond = eval_expression(condition)?;
+
+    if is_truthy(cond) {
+        eval_statement(consequence)
+    } else if let Some(block) = alternative {
+        eval_statement(block)
+    } else {
+        Some(Object::Null)
+    }
+}
+
+fn is_truthy(obj: Object) -> bool {
+    match obj {
+        Object::Null => false,
+        Object::Boolean(b) => b,
+        _ => true,
     }
 }
 
@@ -173,6 +225,47 @@ mod tests {
                 assert_eq!(e, Object::Boolean(expected));
             } else {
                 panic!("Error parsing {}", input);
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_else_expressions() {
+        let tests = vec![
+            ("if (true) { 10 }", Object::Integer(10)),
+            ("if (false) { 10 }", Object::Null),
+            ("if (1) { 10 }", Object::Integer(10)),
+            ("if (1 < 2) { 10 }", Object::Integer(10)),
+            ("if (1 > 2) { 10 }", Object::Null),
+            ("if (1 > 2) { 10 } else { 20 }", Object::Integer(20)),
+            ("if (1 < 2) { 10 } else { 20 }", Object::Integer(10)),
+        ];
+
+        for (input, expected) in tests {
+            if let Some(e) = test_eval(input) {
+                assert_eq!(e, expected);
+            } else {
+                panic!("Error parsing {}", input);
+            }
+        }
+    }
+
+    #[test]
+    fn test_return_statements() {
+        let tests = vec![
+            ("return 10;", Object::Integer(10)),
+            ("return 10; 9;", Object::Integer(10)),
+            ("return 2 * 5; 9;", Object::Integer(10)),
+            ("9; return 2 * 5; 9;", Object::Integer(10)),
+            (
+                "if (10 > 1) { if (10 > 1) { return 10; } return 1; }",
+                Object::Integer(10),
+            ),
+        ];
+
+        for (input, expected) in tests {
+            if let Some(e) = test_eval(input) {
+                assert_eq!(e, expected);
             }
         }
     }
