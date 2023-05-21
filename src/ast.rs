@@ -14,6 +14,7 @@ pub enum Expression {
     FunctionLiteral(FunctionLiteral),
     CallExpression(CallExpression),
     Identifier(Identifier),
+    StringLiteral(StringLiteral),
 }
 impl Expression {
     pub fn to_string(&self) -> String {
@@ -26,6 +27,7 @@ impl Expression {
             Expression::FunctionLiteral(f) => f.to_string(),
             Expression::CallExpression(c) => c.to_string(),
             Expression::Identifier(i) => i.to_string(),
+            Expression::StringLiteral(s) => s.to_string(),
         }
     }
 }
@@ -286,6 +288,18 @@ impl_traits!(
                 .collect::<Vec<String>>()
                 .join(", ")
         )
+    }
+);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StringLiteral {
+    pub token: Token,
+    pub value: String,
+}
+impl_traits!(
+    StringLiteral,
+    fn to_string(&self) -> String {
+        self.value.clone()
     }
 );
 

@@ -9,6 +9,7 @@ pub enum Token {
     // Identifiers + literals
     IDENT(Option<String>),
     INT(Option<i64>),
+    STRING(Option<String>),
 
     // Operators
     ASSIGN,
@@ -64,6 +65,8 @@ impl ToString for Token {
             Token::IDENT(None) => "No_Identifier".to_string(),
             Token::INT(Some(token)) => token.to_string(),
             Token::INT(None) => "NaN".to_string(),
+            Token::STRING(Some(token)) => token.to_string(),
+            Token::STRING(None) => "".to_string(),
             Token::ASSIGN => "=".to_string(),
             Token::PLUS => "+".to_string(),
             Token::MINUS => "-".to_string(),
@@ -98,6 +101,8 @@ impl PartialEq for Token {
             (Token::IDENT(_), Token::IDENT(_)) => true,
             (Token::INT(Some(a)), Token::INT(Some(b))) => a == b,
             (Token::INT(_), Token::INT(_)) => true,
+            (Token::STRING(Some(a)), Token::STRING(Some(b))) => a == b,
+            (Token::STRING(_), Token::STRING(_)) => true,
             (Token::ASSIGN, Token::ASSIGN) => true,
             (Token::PLUS, Token::PLUS) => true,
             (Token::MINUS, Token::MINUS) => true,
@@ -133,6 +138,7 @@ impl Hash for Token {
         match *self {
             Token::IDENT(_) => "IDENTIFIER".hash(state),
             Token::INT(_) => "INTEGER".hash(state),
+            Token::STRING(_) => "STRING".hash(state),
             _ => self.to_string().hash(state),
         };
     }

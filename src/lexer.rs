@@ -54,6 +54,18 @@ impl Lexer {
         i64::from_str_radix(&self.input[position..self.position], 10).unwrap()
     }
 
+    fn read_string(&mut self) -> String {
+        let position = self.position + 1;
+        self.read_char();
+        while let Some(c) = self.ch {
+            if c == '"' {
+                break;
+            }
+            self.read_char();
+        }
+        self.input[position..self.position].to_string()
+    }
+
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
 
@@ -70,6 +82,7 @@ impl Lexer {
             Some(',') => Token::COMMA,
             Some('{') => Token::LBRACE,
             Some('}') => Token::RBRACE,
+            Some('"') => Token::STRING(Some(self.read_string())),
             Some('=') => {
                 if self.peek_char() == Some('=') {
                     self.read_char();
@@ -127,6 +140,8 @@ if (5 < 10) {
 }
 10 == 10;
 10 != 9;
+\"foobar\"
+\"foo bar\"
 ";
 
         let expected: Vec<Token> = vec![
@@ -203,6 +218,8 @@ if (5 < 10) {
             Token::NEQ,
             Token::INT(Some(9)),
             Token::SEMICOLON,
+            Token::STRING(Some("foobar".to_string())),
+            Token::STRING(Some("foo bar".to_string())),
             Token::EOF,
         ];
 

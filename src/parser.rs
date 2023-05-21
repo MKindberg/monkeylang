@@ -61,6 +61,7 @@ impl Parser {
         p.register_prefix(Token::LPAREN, Parser::parse_grouped_expression);
         p.register_prefix(Token::IF, Parser::parse_if_expression);
         p.register_prefix(Token::FUNCTION, Parser::parse_function_literal);
+        p.register_prefix(Token::STRING(None), Parser::parse_string_literal);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -273,6 +274,13 @@ impl Parser {
             token,
             function: Box::new(function),
             arguments,
+        }));
+    }
+
+    fn parse_string_literal(&mut self) -> Option<Expression> {
+        return Some(Expression::StringLiteral(ast::StringLiteral {
+            token: self.current_token.clone(),
+            value: self.current_token.to_string(),
         }));
     }
 
@@ -930,6 +938,23 @@ return 993322;";
                 test_infix_expression(&e.arguments[2], &4, &"+", &5);
             } else {
                 panic!("not a call expression");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_string_literal_expression() {
+        let input = r#""hello world""#;
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::StringLiteral(e) = &*s.expression {
+                assert_eq!(e.value, "hello world");
+            } else {
+                panic!("not a string literal");
             }
         } else {
             panic!("not an expression statement");

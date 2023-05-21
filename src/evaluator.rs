@@ -81,6 +81,7 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
             env.clone(),
         )),
         Expression::CallExpression(c) => eval_call_expression(&c.function, &c.arguments, env),
+        Expression::StringLiteral(s) => Object::String(s.value.clone()),
     }
 }
 
@@ -119,11 +120,12 @@ fn eval_infix_expression(
         return r;
     }
     match (&l, &r, operator) {
+        (_, _, "==") => Object::Boolean(l == r),
+        (_, _, "!=") => Object::Boolean(l != r),
         (Object::Integer(l), Object::Integer(r), _) => {
             eval_integer_infix_expression(&l, &r, operator)
         }
-        (_, _, "==") => Object::Boolean(l == r),
-        (_, _, "!=") => Object::Boolean(l != r),
+        (Object::String(l), Object::String(r), _) => eval_string_infix_expression(&l, &r, operator),
         (l, r, _) if l.type_string() != r.type_string() => Object::Error(format!(
             "type mismatch: {} {} {}",
             l.type_string(),
@@ -147,9 +149,14 @@ fn eval_integer_infix_expression(left: &i64, right: &i64, operator: &str) -> Obj
         "/" => Object::Integer(left / right),
         "<" => Object::Boolean(left < right),
         ">" => Object::Boolean(left > right),
-        "==" => Object::Boolean(left == right),
-        "!=" => Object::Boolean(left != right),
         _ => Object::Error(format!("unknown operator: INTEGER {} INTEGER", operator)),
+    }
+}
+
+fn eval_string_infix_expression(left: &String, right: &String, operator: &str) -> Object {
+    match operator {
+        "+" => Object::String(format!("{}{}", left, right)),
+        _ => Object::Error(format!("unknown operator: STRING {} STRING", operator)),
     }
 }
 
@@ -375,6 +382,7 @@ mod tests {
                 "unknown operator: BOOLEAN + BOOLEAN",
             ),
             ("foobar;", "identifier not found: foobar"),
+            (r#""Hello" - "World""#, "unknown operator: STRING - STRING"),
         ];
 
         for (input, expected) in tests {
@@ -441,5 +449,21 @@ mod tests {
             let addTwo = newAdder(2);
             addTwo(2);";
         assert_eq!(test_eval(input), Object::Integer(4));
+    }
+
+    #[test]
+    fn test_string_literal() {
+        assert_eq!(
+            test_eval(r#""hello world""#),
+            Object::String("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn test_string_concatenation() {
+        assert_eq!(
+            test_eval(r#""hello" + " " + "world""#),
+            Object::String("hello world".to_string())
+        )
     }
 }

@@ -6,8 +6,9 @@ pub enum Object {
     Integer(i64),
     Boolean(bool),
     ReturnValue(Box<Object>),
-    Error(String),
     Function(Function),
+    String(String),
+    Error(String),
     Null,
 }
 
@@ -18,6 +19,7 @@ impl Object {
             Object::Boolean(b) => b.to_string(),
             Object::ReturnValue(v) => v.to_string(),
             Object::Function(f) => f.to_string(),
+            Object::String(s) => s.to_string(),
             Object::Error(s) => s.to_string(),
             Object::Null => "null".to_string(),
         }
@@ -29,6 +31,7 @@ impl Object {
             Object::Boolean(_) => "BOOLEAN",
             Object::ReturnValue(_) => "RETURN_VALUE",
             Object::Function(_) => "FUNCTION",
+            Object::String(_) => "STRING",
             Object::Error(_) => "ERROR",
             Object::Null => "NULL",
         }
