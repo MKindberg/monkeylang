@@ -1,9 +1,11 @@
 use crate::ast;
 use crate::ast::Expression;
 use crate::ast::Statement;
+use crate::object::BuiltinFunction;
 use crate::object::Environment;
 use crate::object::Function;
 use crate::object::Object;
+
 
 pub fn eval(program: &ast::Program, env: &mut Environment) -> Object {
     eval_program(&program.statements, env)
@@ -189,9 +191,12 @@ fn is_truthy(obj: Object) -> bool {
 }
 
 fn eval_identifier(value: &str, env: &mut Environment) -> Object {
-    match env.get(value) {
-        Some(v) => v.clone(),
-        None => Object::Error(format!("identifier not found: {}", value)),
+    if let Some(v) = env.get(value) {
+        return v.clone();
+    } else if let Some(v) = BuiltinFunction::lookup(value) {
+        return Object::Builtin(v);
+    } else {
+        Object::Error(format!("identifier not found: {}", value))
     }
 }
 
@@ -232,6 +237,8 @@ fn apply_function(func: Object, args: Vec<Object>) -> Object {
             return *rv;
         }
         return evaluated;
+    }else if let Object::Builtin(f) = func {
+        return f.execute(&args);
     } else {
         return Object::Error(format!("not a function: {}", func.type_string()));
     }
@@ -465,5 +472,26 @@ mod tests {
             test_eval(r#""hello" + " " + "world""#),
             Object::String("hello world".to_string())
         )
+    }
+
+    #[test]
+    fn test_builtin_functions() {
+        let input = vec![
+            (r#"len("")"#, Object::Integer(0)),
+            (r#"len("four")"#, Object::Integer(4)),
+            (r#"len("hello world")"#, Object::Integer(11)),
+            (
+                r#"len(1)"#,
+                Object::Error("argument to `len` not supported, got INTEGER".to_string()),
+            ),
+            (
+                r#"len(true)"#,
+                Object::Error("argument to `len` not supported, got BOOLEAN".to_string()),
+            ),
+        ];
+
+        for (input, expected) in input {
+            assert_eq!(test_eval(input), expected);
+        }
     }
 }
