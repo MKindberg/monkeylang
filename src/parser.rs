@@ -16,6 +16,7 @@ enum Precedence {
     PRODUCT,
     PREFIX,
     CALL,
+    INDEX,
 }
 
 impl Precedence {
@@ -26,6 +27,7 @@ impl Precedence {
             Token::PLUS | Token::MINUS => Precedence::SUM,
             Token::SLASH | Token::ASTERISK => Precedence::PRODUCT,
             Token::LPAREN => Precedence::CALL,
+            Token::LBRACKET => Precedence::INDEX,
             _ => Precedence::LOWEST,
         }
     }
@@ -62,6 +64,7 @@ impl Parser {
         p.register_prefix(Token::IF, Parser::parse_if_expression);
         p.register_prefix(Token::FUNCTION, Parser::parse_function_literal);
         p.register_prefix(Token::STRING(None), Parser::parse_string_literal);
+        p.register_prefix(Token::LBRACKET, Parser::parse_array_literal);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -72,6 +75,7 @@ impl Parser {
         p.register_infix(Token::LT, Parser::parse_infix_expression);
         p.register_infix(Token::GT, Parser::parse_infix_expression);
         p.register_infix(Token::LPAREN, Parser::parse_call_expression);
+        p.register_infix(Token::LBRACKET, Parser::parse_index_expression);
 
         return p;
     }
@@ -245,31 +249,9 @@ impl Parser {
         }));
     }
 
-    fn parse_call_arguments(&mut self) -> Option<Vec<Expression>> {
-        let mut args = vec![];
-        if self.peek_token == Token::RPAREN {
-            self.next_token();
-            return Some(args);
-        }
-
-        self.next_token();
-        args.push(self.parse_expression(Precedence::LOWEST)?);
-
-        while self.peek_token == Token::COMMA {
-            self.next_token();
-            self.next_token();
-            args.push(self.parse_expression(Precedence::LOWEST)?);
-        }
-
-        if !self.expect_peek(Token::RPAREN) {
-            return None;
-        }
-        return Some(args);
-    }
-
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
         let token = self.current_token.clone();
-        let arguments = self.parse_call_arguments()?;
+        let arguments = self.parse_expression_list(Token::RPAREN)?;
         return Some(Expression::CallExpression(ast::CallExpression {
             token,
             function: Box::new(function),
@@ -281,6 +263,53 @@ impl Parser {
         return Some(Expression::StringLiteral(ast::StringLiteral {
             token: self.current_token.clone(),
             value: self.current_token.to_string(),
+        }));
+    }
+
+    fn parse_expression_list(&mut self, end: Token) -> Option<Vec<Expression>> {
+        let mut exprs = vec![];
+
+        if self.peek_token == end {
+            self.next_token();
+            return Some(exprs);
+        }
+
+        self.next_token();
+        exprs.push(self.parse_expression(Precedence::LOWEST)?);
+
+        while self.peek_token == Token::COMMA {
+            self.next_token();
+            self.next_token();
+            exprs.push(self.parse_expression(Precedence::LOWEST)?);
+        }
+
+        if !self.expect_peek(end) {
+            return None;
+        }
+
+        return Some(exprs);
+    }
+
+    fn parse_array_literal(&mut self) -> Option<Expression> {
+        return Some(Expression::ArrayLiteral(ast::ArrayLiteral {
+            token: self.current_token.clone(),
+            elements: self.parse_expression_list(Token::RBRACKET)?,
+        }));
+    }
+
+    fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
+        let token = self.current_token.clone();
+        self.next_token();
+
+        let index = self.parse_expression(Precedence::LOWEST)?;
+
+        if !self.expect_peek(Token::RBRACKET) {
+            return None;
+        }
+        return Some(Expression::IndexExpression(ast::IndexExpression {
+            token,
+            left: Box::new(left),
+            index: Box::new(index),
         }));
     }
 
@@ -793,6 +822,14 @@ return 993322;";
                 "add(a + b + c * d / f + g)",
                 "add((((a + b) + ((c * d) / f)) + g))",
             ),
+            (
+                "a * [1, 2, 3, 4][b * c] * d",
+                "((a * ([1, 2, 3, 4][(b * c)])) * d)",
+            ),
+            (
+                "add(a * b[2], b[1], 2 * [1, 2][1])",
+                "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+            ),
         ];
         for t in tests.iter() {
             let program = read_program(t.0);
@@ -955,6 +992,45 @@ return 993322;";
                 assert_eq!(e.value, "hello world");
             } else {
                 panic!("not a string literal");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parsing_array_literals() {
+        let input = "[1, 2 * 2, 3 + 3]";
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::ArrayLiteral(e) = &*s.expression {
+                assert_eq!(e.elements.len(), 3);
+                test_literal_expression(&e.elements[0], &1);
+                test_infix_expression(&e.elements[1], &2, &"*", &2);
+                test_infix_expression(&e.elements[2], &3, &"+", &3);
+            } else {
+                panic!("not an array literal");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parsing_index_expressions() {
+        let input = "myArray[1 + 1]";
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::IndexExpression(e) = &*s.expression {
+                test_identifier(&e.left, &"myArray");
+                test_infix_expression(&e.index, &1, &"+", &1);
+            } else {
+                panic!("not an index expression");
             }
         } else {
             panic!("not an expression statement");

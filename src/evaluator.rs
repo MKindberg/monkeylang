@@ -6,7 +6,6 @@ use crate::object::Environment;
 use crate::object::Function;
 use crate::object::Object;
 
-
 pub fn eval(program: &ast::Program, env: &mut Environment) -> Object {
     eval_program(&program.statements, env)
 }
@@ -84,6 +83,8 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
         )),
         Expression::CallExpression(c) => eval_call_expression(&c.function, &c.arguments, env),
         Expression::StringLiteral(s) => Object::String(s.value.clone()),
+        Expression::ArrayLiteral(a) => eval_array_literal(&a.elements, env),
+        Expression::IndexExpression(i) => eval_index_expression(&i.left, &i.index, env),
     }
 }
 
@@ -217,6 +218,36 @@ fn eval_call_expression(
     return apply_function(func, args);
 }
 
+fn eval_array_literal(elements: &Vec<Expression>, env: &mut Environment) -> Object {
+    let e = eval_expressions(&elements, env);
+    if let Some(Object::Error(_)) = e.get(0) {
+        return e[0].clone();
+    }
+    return Object::Array(e);
+}
+
+fn eval_index_expression(left: &Expression, index: &Expression, env: &mut Environment) -> Object {
+    let l = eval_expression(left, env);
+    if let Object::Error(_) = l {
+        return l;
+    }
+    let i = eval_expression(index, env);
+    if let Object::Error(_) = i {
+        return i;
+    }
+    return match (&l, &i) {
+        (Object::Array(a), Object::Integer(i)) => eval_array_index_expression(&a, &i),
+        _ => Object::Error(format!("index operator not supported: {} {}", l.type_string(), i.type_string())),
+    }
+}
+
+fn eval_array_index_expression(arr: &Vec<Object>, index: &i64) -> Object {
+    if *index < 0 || *index >= arr.len() as i64 {
+        return Object::Null;
+    }
+    return arr[*index as usize].clone();
+}
+
 fn eval_expressions(expressions: &Vec<Expression>, env: &mut Environment) -> Vec<Object> {
     let mut result = Vec::new();
     for expr in expressions {
@@ -237,7 +268,7 @@ fn apply_function(func: Object, args: Vec<Object>) -> Object {
             return *rv;
         }
         return evaluated;
-    }else if let Object::Builtin(f) = func {
+    } else if let Object::Builtin(f) = func {
         return f.execute(&args);
     } else {
         return Object::Error(format!("not a function: {}", func.type_string()));
@@ -491,6 +522,46 @@ mod tests {
         ];
 
         for (input, expected) in input {
+            assert_eq!(test_eval(input), expected);
+        }
+    }
+
+    #[test]
+    fn test_array_literals() {
+        let input = "[1, 2 * 2, 3 + 3]";
+
+        assert_eq!(
+            test_eval(input),
+            Object::Array(vec![
+                Object::Integer(1),
+                Object::Integer(4),
+                Object::Integer(6),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_index_expressions() {
+        let tests = vec![
+            ("[1, 2, 3][0]", Object::Integer(1)),
+            ("[1, 2, 3][1]", Object::Integer(2)),
+            ("[1, 2, 3][2]", Object::Integer(3)),
+            ("let i = 0; [1][i];", Object::Integer(1)),
+            ("[1, 2, 3][1 + 1];", Object::Integer(3)),
+            ("let myArray = [1, 2, 3]; myArray[2];", Object::Integer(3)),
+            (
+                "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+                Object::Integer(6),
+            ),
+            (
+                "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i];",
+                Object::Integer(2),
+            ),
+            ("[1, 2, 3][3]", Object::Null),
+            ("[1, 2, 3][-1]", Object::Null),
+        ];
+
+        for (input, expected) in tests {
             assert_eq!(test_eval(input), expected);
         }
     }

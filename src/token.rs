@@ -30,6 +30,8 @@ pub enum Token {
     RPAREN,
     LBRACE,
     RBRACE,
+    LBRACKET,
+    RBRACKET,
 
     // Keywords
     FUNCTION,
@@ -83,6 +85,8 @@ impl ToString for Token {
             Token::RPAREN => ")".to_string(),
             Token::LBRACE => "{".to_string(),
             Token::RBRACE => "}".to_string(),
+            Token::LBRACKET => "[".to_string(),
+            Token::RBRACKET => "]".to_string(),
             Token::FUNCTION => "fn".to_string(),
             Token::LET => "let".to_string(),
             Token::TRUE => "true".to_string(),
@@ -119,6 +123,8 @@ impl PartialEq for Token {
             (Token::RPAREN, Token::RPAREN) => true,
             (Token::LBRACE, Token::LBRACE) => true,
             (Token::RBRACE, Token::RBRACE) => true,
+            (Token::LBRACKET, Token::LBRACKET) => true,
+            (Token::RBRACKET, Token::RBRACKET) => true,
             (Token::FUNCTION, Token::FUNCTION) => true,
             (Token::LET, Token::LET) => true,
             (Token::TRUE, Token::TRUE) => true,

@@ -15,6 +15,8 @@ pub enum Expression {
     CallExpression(CallExpression),
     Identifier(Identifier),
     StringLiteral(StringLiteral),
+    ArrayLiteral(ArrayLiteral),
+    IndexExpression(IndexExpression),
 }
 impl Expression {
     pub fn to_string(&self) -> String {
@@ -28,6 +30,8 @@ impl Expression {
             Expression::CallExpression(c) => c.to_string(),
             Expression::Identifier(i) => i.to_string(),
             Expression::StringLiteral(s) => s.to_string(),
+            Expression::ArrayLiteral(a) => a.to_string(),
+            Expression::IndexExpression(i) => i.to_string(),
         }
     }
 }
@@ -300,6 +304,42 @@ impl_traits!(
     StringLiteral,
     fn to_string(&self) -> String {
         self.value.clone()
+    }
+);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ArrayLiteral {
+    pub token: Token,
+    pub elements: Vec<Expression>,
+}
+impl_traits!(
+    ArrayLiteral,
+    fn to_string(&self) -> String {
+        format!(
+            "[{}]",
+            self.elements
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct IndexExpression {
+    pub token: Token,
+    pub left: Box<Expression>,
+    pub index: Box<Expression>,
+}
+impl_traits!(
+    IndexExpression,
+    fn to_string(&self) -> String {
+        format!(
+            "({}[{}])",
+            self.left.to_string(),
+            self.index.to_string()
+        )
     }
 );
 
