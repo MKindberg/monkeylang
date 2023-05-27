@@ -65,6 +65,7 @@ impl Parser {
         p.register_prefix(Token::FUNCTION, Parser::parse_function_literal);
         p.register_prefix(Token::STRING(None), Parser::parse_string_literal);
         p.register_prefix(Token::LBRACKET, Parser::parse_array_literal);
+        p.register_prefix(Token::LBRACE, Parser::parse_hash_literal);
 
         p.register_infix(Token::PLUS, Parser::parse_infix_expression);
         p.register_infix(Token::MINUS, Parser::parse_infix_expression);
@@ -294,6 +295,36 @@ impl Parser {
         return Some(Expression::ArrayLiteral(ast::ArrayLiteral {
             token: self.current_token.clone(),
             elements: self.parse_expression_list(Token::RBRACKET)?,
+        }));
+    }
+
+    fn parse_hash_literal(&mut self) -> Option<Expression> {
+        let token = self.current_token.clone();
+        let mut pairs = Vec::new();
+
+        while self.peek_token != Token::RBRACE && self.peek_token != Token::EOF {
+            self.next_token();
+            let key = self.parse_expression(Precedence::LOWEST)?;
+
+            if !self.expect_peek(Token::COLON) {
+                return None;
+            }
+            self.next_token();
+            let value = self.parse_expression(Precedence::LOWEST)?;
+
+            pairs.push((key, value));
+            if self.peek_token != Token::RBRACE && !self.expect_peek(Token::COMMA) {
+                return None;
+            }
+        }
+
+        if !self.expect_peek(Token::RBRACE) {
+            return None;
+        }
+
+        return Some(Expression::HashLiteral(ast::HashLiteral {
+            token,
+            pairs,
         }));
     }
 
@@ -548,6 +579,14 @@ mod tests {
             assert_eq!(i.value, value);
         } else {
             panic!("not an identifier");
+        }
+    }
+
+    fn test_string_literal(input: &Expression, value: &str) {
+        if let Expression::StringLiteral(s) = input {
+            assert_eq!(s.value, value);
+        } else {
+            panic!("not a string literal");
         }
     }
 
@@ -1031,6 +1070,70 @@ return 993322;";
                 test_infix_expression(&e.index, &1, &"+", &1);
             } else {
                 panic!("not an index expression");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_string_keys() {
+        let input = r#"{"one": 1, "two": 2, "three": 3}"#;
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::HashLiteral(e) = &*s.expression {
+                assert_eq!(e.pairs.len(), 3);
+                let keys = ["one", "two", "three"];
+                let values = [1, 2, 3];
+                for (i, (k, v)) in e.pairs.iter().enumerate() {
+                    test_string_literal(k, &keys[i]);
+                    test_literal_expression(v, &values[i]);
+                }
+            } else {
+                panic!("not a hash literal");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parsing_empty_hash_literal() {
+        let input = "{}";
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::HashLiteral(e) = &*s.expression {
+                assert_eq!(e.pairs.len(), 0);
+            } else {
+                panic!("not a hash literal");
+            }
+        } else {
+            panic!("not an expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_with_expressions() {
+        let input = r#"{"one": 0 + 1, "two": 10 - 8, "three": 15 / 5}"#;
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            if let Expression::HashLiteral(e) = &*s.expression {
+                assert_eq!(e.pairs.len(), 3);
+                test_string_literal(&e.pairs[0].0, &"one");
+                test_string_literal(&e.pairs[1].0, &"two");
+                test_string_literal(&e.pairs[2].0, &"three");
+
+                test_infix_expression(&e.pairs[0].1, &0, &"+", &1);
+                test_infix_expression(&e.pairs[1].1, &10, &"-", &8);
+                test_infix_expression(&e.pairs[2].1, &15, &"/", &5);
+            } else {
+                panic!("not a hash literal");
             }
         } else {
             panic!("not an expression statement");

@@ -1,7 +1,8 @@
 use crate::ast::{BlockStatement, Identifier};
 use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Object {
     Integer(i64),
     Boolean(bool),
@@ -10,6 +11,7 @@ pub enum Object {
     Builtin(BuiltinFunction),
     String(String),
     Array(Vec<Object>),
+    HashMap(std::collections::HashMap<Object, Object>),
     Error(String),
     Null,
 }
@@ -30,6 +32,13 @@ impl Object {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
+            Object::HashMap(m) => format!(
+                "{{{}}}",
+                m.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_string()))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ),
             Object::Error(s) => s.to_string(),
             Object::Null => "null".to_string(),
         }
@@ -44,8 +53,18 @@ impl Object {
             Object::Builtin(_) => "BUILTIN",
             Object::String(_) => "STRING",
             Object::Array(_) => "ARRAY",
+            Object::HashMap(_) => "HASH_MAP",
             Object::Error(_) => "ERROR",
             Object::Null => "NULL",
+        }
+    }
+    pub fn is_hashable(&self) -> bool {
+        match self {
+            Object::Integer(_) => true,
+            Object::Boolean(_) => true,
+            Object::String(_) => true,
+            Object::Array(_) => true,
+            _ => false,
         }
     }
 }
@@ -56,7 +75,20 @@ impl Display for Object {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+impl Hash for Object {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Object::Integer(i) => i.hash(state),
+            Object::Boolean(b) => b.hash(state),
+            Object::String(s) => s.hash(state),
+            Object::Array(a) => a.hash(state),
+            _ => panic!("Hash not implemented for {}", self.type_string()),
+        }
+        self.to_string().hash(state);
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Environment {
     store: std::collections::HashMap<String, Object>,
     outer: Option<Box<Environment>>,
@@ -91,11 +123,17 @@ impl Environment {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Function {
     pub parameters: Vec<Identifier>,
     pub body: BlockStatement,
     pub env: Environment,
+}
+
+impl Hash for Function {
+    fn hash<H: Hasher>(&self, _: &mut H) {
+        panic!("Hash not implemented for FUNCTION")
+    }
 }
 
 impl Function {
@@ -120,7 +158,7 @@ impl Function {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BuiltinFunction {
     Len,
     First,
@@ -128,6 +166,13 @@ pub enum BuiltinFunction {
     Rest,
     Push,
 }
+
+impl Hash for BuiltinFunction {
+    fn hash<H: Hasher>(&self, _: &mut H) {
+        panic!("Hash not implemented for BUILTIN")
+    }
+}
+
 impl BuiltinFunction {
     pub fn execute(&self, args: &[Object]) -> Object {
         match self {

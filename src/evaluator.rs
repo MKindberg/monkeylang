@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::ast;
 use crate::ast::Expression;
 use crate::ast::Statement;
@@ -85,6 +87,7 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
         Expression::StringLiteral(s) => Object::String(s.value.clone()),
         Expression::ArrayLiteral(a) => eval_array_literal(&a.elements, env),
         Expression::IndexExpression(i) => eval_index_expression(&i.left, &i.index, env),
+        Expression::HashLiteral(h) => eval_hash_literal(&h.pairs, env),
     }
 }
 
@@ -237,8 +240,32 @@ fn eval_index_expression(left: &Expression, index: &Expression, env: &mut Enviro
     }
     return match (&l, &i) {
         (Object::Array(a), Object::Integer(i)) => eval_array_index_expression(&a, &i),
-        _ => Object::Error(format!("index operator not supported: {} {}", l.type_string(), i.type_string())),
+        (Object::HashMap(h), _) => eval_hash_index_expression(&h, &i),
+        _ => Object::Error(format!(
+            "index operator not supported: {} {}",
+            l.type_string(),
+            i.type_string()
+        )),
+    };
+}
+
+fn eval_hash_literal(pairs: &Vec<(Expression, Expression)>, env: &mut Environment) -> Object {
+    let mut h = HashMap::new();
+    for pair in pairs {
+        let key = eval_expression(&pair.0, env);
+        if let Object::Error(_) = key {
+            return key;
+        }
+        if !key.is_hashable() {
+            return Object::Error(format!("unusable as hash key: {}", key.type_string()));
+        }
+        let value = eval_expression(&pair.1, env);
+        if let Object::Error(_) = value {
+            return value;
+        }
+        h.insert(key, value);
     }
+    return Object::HashMap(h);
 }
 
 fn eval_array_index_expression(arr: &Vec<Object>, index: &i64) -> Object {
@@ -246,6 +273,13 @@ fn eval_array_index_expression(arr: &Vec<Object>, index: &i64) -> Object {
         return Object::Null;
     }
     return arr[*index as usize].clone();
+}
+
+fn eval_hash_index_expression(h: &HashMap<Object, Object>, key: &Object) -> Object {
+    if !key.is_hashable() {
+        return Object::Error(format!("unusable as hash key: {}", key.type_string()));
+    }
+    return h.get(key).unwrap_or(&Object::Null).clone();
 }
 
 fn eval_expressions(expressions: &Vec<Expression>, env: &mut Environment) -> Vec<Object> {
@@ -421,13 +455,15 @@ mod tests {
             ),
             ("foobar;", "identifier not found: foobar"),
             (r#""Hello" - "World""#, "unknown operator: STRING - STRING"),
+            (r#"{"name": "Monkey"}[fn(x) { x }];"#, "unusable as hash key: FUNCTION"),
         ];
 
         for (input, expected) in tests {
-            if let Object::Error(e) = test_eval(input) {
+            let evaluated = test_eval(input);
+            if let Object::Error(e) = evaluated {
                 assert_eq!(e, expected);
             } else {
-                panic!("Error parsing {}", input);
+                panic!("Error parsing {}. Got '{}', expected '{}'", input, evaluated, expected);
             }
         }
     }
@@ -561,6 +597,58 @@ mod tests {
             ("[1, 2, 3][-1]", Object::Null),
         ];
 
+        for (input, expected) in tests {
+            assert_eq!(test_eval(input), expected);
+        }
+    }
+
+    #[test]
+    fn test_hash_literals() {
+        let input = r#"let two = "two";
+        {
+            "one": 10 - 9,
+            two: 1 + 1,
+            "thr" + "ee": 6 / 2,
+            4: 4,
+            true: 5,
+            false: 6
+        }
+        "#;
+
+        let evaluated = test_eval(input);
+        if let Object::HashMap(h) = evaluated {
+            assert_eq!(h.len(), 6);
+            assert_eq!(
+                h.get(&Object::String("one".to_string())),
+                Some(&Object::Integer(1))
+            );
+            assert_eq!(
+                h.get(&Object::String("two".to_string())),
+                Some(&Object::Integer(2))
+            );
+            assert_eq!(
+                h.get(&Object::String("three".to_string())),
+                Some(&Object::Integer(3))
+            );
+            assert_eq!(h.get(&Object::Integer(4)), Some(&Object::Integer(4)));
+            assert_eq!(h.get(&Object::Boolean(true)), Some(&Object::Integer(5)));
+            assert_eq!(h.get(&Object::Boolean(false)), Some(&Object::Integer(6)));
+        } else {
+            panic!("not a hash map");
+        }
+    }
+
+    #[test]
+    fn test_hash_index_expressions() {
+        let tests = vec![
+            (r#"{"foo": 5}["foo"]"#, Object::Integer(5)),
+            (r#"{"foo": 5}["bar"]"#, Object::Null),
+            (r#"let key = "foo"; {"foo": 5}[key]"#, Object::Integer(5)),
+            (r#"{}["foo"]"#, Object::Null),
+            ("{5: 5}[5]", Object::Integer(5)),
+            ("{true: 5}[true]", Object::Integer(5)),
+            ("{false: 5}[false]", Object::Integer(5)),
+        ];
         for (input, expected) in tests {
             assert_eq!(test_eval(input), expected);
         }

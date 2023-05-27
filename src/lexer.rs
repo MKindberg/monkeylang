@@ -84,6 +84,7 @@ impl Lexer {
             Some('}') => Token::RBRACE,
             Some('[') => Token::LBRACKET,
             Some(']') => Token::RBRACKET,
+            Some(':') => Token::COLON,
             Some('"') => Token::STRING(Some(self.read_string())),
             Some('=') => {
                 if self.peek_char() == Some('=') {
@@ -124,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_next_token() {
-        let input = "let five = 5;
+        let input = r#"let five = 5;
 let ten = 10;
 
 let add = fn(x, y) {
@@ -142,10 +143,11 @@ if (5 < 10) {
 }
 10 == 10;
 10 != 9;
-\"foobar\"
-\"foo bar\"
+"foobar"
+"foo bar"
 [1, 2];
-";
+{"foo": "bar"}
+"#;
 
         let expected: Vec<Token> = vec![
             Token::LET,
@@ -229,6 +231,11 @@ if (5 < 10) {
             Token::INT(Some(2)),
             Token::RBRACKET,
             Token::SEMICOLON,
+            Token::LBRACE,
+            Token::STRING(Some("foo".to_string())),
+            Token::COLON,
+            Token::STRING(Some("bar".to_string())),
+            Token::RBRACE,
             Token::EOF,
         ];
 

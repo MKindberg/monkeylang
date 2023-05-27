@@ -1,10 +1,12 @@
+use std::{hash::Hash, hash::Hasher};
+
 use crate::token::Token;
 
 pub trait Node {
     fn token_literal(&self) -> String;
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expression {
     IntegerLiteral(IntegerLiteral),
     PrefixExpression(PrefixExpression),
@@ -17,6 +19,7 @@ pub enum Expression {
     StringLiteral(StringLiteral),
     ArrayLiteral(ArrayLiteral),
     IndexExpression(IndexExpression),
+    HashLiteral(HashLiteral),
 }
 impl Expression {
     pub fn to_string(&self) -> String {
@@ -32,11 +35,12 @@ impl Expression {
             Expression::StringLiteral(s) => s.to_string(),
             Expression::ArrayLiteral(a) => a.to_string(),
             Expression::IndexExpression(i) => i.to_string(),
+            Expression::HashLiteral(h) => h.to_string(),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Statement {
     LetStatement(LetStatement),
     ReturnStatement(ReturnStatement),
@@ -99,7 +103,7 @@ impl Program {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LetStatement {
     pub token: Token,
     pub name: Identifier,
@@ -116,7 +120,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Identifier {
     pub token: Token,
     pub value: String,
@@ -128,7 +132,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ReturnStatement {
     pub token: Token,
     pub value: Box<Expression>,
@@ -140,7 +144,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ExpressionStatement {
     pub token: Token,
     pub expression: Box<Expression>,
@@ -152,7 +156,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IntegerLiteral {
     pub token: Token,
     pub value: i64,
@@ -164,7 +168,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PrefixExpression {
     pub token: Token,
     pub operator: String,
@@ -177,7 +181,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct InfixExpression {
     pub token: Token,
     pub left: Box<Expression>,
@@ -196,7 +200,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Boolean {
     pub token: Token,
     pub value: bool,
@@ -208,7 +212,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct BlockStatement {
     pub token: Token,
     pub statements: Vec<Statement>,
@@ -230,7 +234,7 @@ impl BlockStatement {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IfExpression {
     pub token: Token,
     pub condition: Box<Expression>,
@@ -253,7 +257,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct FunctionLiteral {
     pub token: Token,
     pub parameters: Vec<Identifier>,
@@ -274,7 +278,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct CallExpression {
     pub token: Token,
     pub function: Box<Expression>,
@@ -295,7 +299,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct StringLiteral {
     pub token: Token,
     pub value: String,
@@ -307,7 +311,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ArrayLiteral {
     pub token: Token,
     pub elements: Vec<Expression>,
@@ -326,7 +330,7 @@ impl_traits!(
     }
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IndexExpression {
     pub token: Token,
     pub left: Box<Expression>,
@@ -335,13 +339,33 @@ pub struct IndexExpression {
 impl_traits!(
     IndexExpression,
     fn to_string(&self) -> String {
+        format!("({}[{}])", self.left.to_string(), self.index.to_string())
+    }
+);
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct HashLiteral {
+    pub token: Token,
+    pub pairs: Vec<(Expression, Expression)>,
+}
+impl_traits!(
+    HashLiteral,
+    fn to_string(&self) -> String {
         format!(
-            "({}[{}])",
-            self.left.to_string(),
-            self.index.to_string()
+            "{{{}}}",
+            self.pairs
+                .iter()
+                .map(|(k, v)| format!("{}:{}", k.to_string(), v.to_string()))
+                .collect::<Vec<String>>()
+                .join(", ")
         )
     }
 );
+impl Hash for HashLiteral {
+    fn hash<H: Hasher>(&self, _: &mut H) {
+        panic!("Hash not implemented for HashLiteral");
+    }
+}
 
 #[cfg(test)]
 mod tests {
