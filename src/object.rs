@@ -165,6 +165,7 @@ pub enum BuiltinFunction {
     Last,
     Rest,
     Push,
+    Puts,
 }
 
 impl Hash for BuiltinFunction {
@@ -181,6 +182,7 @@ impl BuiltinFunction {
             BuiltinFunction::Last => Self::builtin_last(args),
             BuiltinFunction::Rest => Self::builtin_rest(args),
             BuiltinFunction::Push => Self::builtin_push(args),
+            BuiltinFunction::Puts => Self::builtin_puts(args),
         }
     }
 
@@ -191,6 +193,7 @@ impl BuiltinFunction {
             "last" => Some(BuiltinFunction::Last),
             "rest" => Some(BuiltinFunction::Rest),
             "push" => Some(BuiltinFunction::Push),
+            "puts" => Some(BuiltinFunction::Puts),
             _ => None,
         }
     }
@@ -201,6 +204,7 @@ impl BuiltinFunction {
             BuiltinFunction::Last => "builtin_last".to_string(),
             BuiltinFunction::Rest => "builtin_rest".to_string(),
             BuiltinFunction::Push => "builtin_push".to_string(),
+            BuiltinFunction::Puts => "builtin_puts".to_string(),
         }
     }
 
@@ -303,5 +307,12 @@ impl BuiltinFunction {
                 args[0].type_string()
             )),
         }
+    }
+
+    fn builtin_puts(args: &[Object]) -> Object {
+        for arg in args {
+            println!("{} ", arg);
+        }
+        return Object::Null;
     }
 }
