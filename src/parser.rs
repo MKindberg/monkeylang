@@ -83,14 +83,12 @@ impl Parser {
 
     fn parse_identifier(&mut self) -> Option<Expression> {
         return Some(Expression::Identifier(ast::Identifier {
-            token: self.current_token.clone(),
             value: self.current_token.to_string(),
         }));
     }
 
     fn parse_integer_literal(&mut self) -> Option<Expression> {
         return Some(Expression::IntegerLiteral(ast::IntegerLiteral {
-            token: self.current_token.clone(),
             value: match self.current_token.clone() {
                 Token::INT(n) => n.unwrap(),
                 _ => {
@@ -106,7 +104,6 @@ impl Parser {
 
     fn parse_boolean(&mut self) -> Option<Expression> {
         return Some(Expression::Boolean(ast::Boolean {
-            token: self.current_token.clone(),
             value: match self.current_token.clone() {
                 Token::TRUE => true,
                 Token::FALSE => false,
@@ -126,7 +123,6 @@ impl Parser {
         self.next_token();
         let right = self.parse_expression(Precedence::PREFIX)?;
         return Some(Expression::PrefixExpression(ast::PrefixExpression {
-            token: token.clone(),
             operator: token.to_string(),
             right: Box::new(right),
         }));
@@ -138,7 +134,6 @@ impl Parser {
         self.next_token();
         let right = self.parse_expression(precedence)?;
         return Some(Expression::InfixExpression(ast::InfixExpression {
-            token: token.clone(),
             left: Box::new(left),
             operator: token.to_string(),
             right: Box::new(right),
@@ -157,7 +152,6 @@ impl Parser {
 
     fn parse_block_statement(&mut self) -> ast::BlockStatement {
         let mut stmts = vec![];
-        let token = self.current_token.clone();
         self.next_token();
         while self.current_token != Token::RBRACE && self.current_token != Token::EOF {
             if let Some(stmt) = self.parse_statement() {
@@ -166,13 +160,11 @@ impl Parser {
             self.next_token();
         }
         return ast::BlockStatement {
-            token,
             statements: stmts,
         };
     }
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
-        let token = self.current_token.clone();
         if !self.expect_peek(Token::LPAREN) {
             return None;
         }
@@ -197,7 +189,6 @@ impl Parser {
             None
         };
         return Some(Expression::IfExpression(ast::IfExpression {
-            token,
             condition: Box::new(condition),
             consequence,
             alternative,
@@ -214,14 +205,12 @@ impl Parser {
         self.next_token();
 
         params.push(ast::Identifier {
-            token: self.current_token.clone(),
             value: self.current_token.to_string(),
         });
         while self.peek_token == Token::COMMA {
             self.next_token();
             self.next_token();
             params.push(ast::Identifier {
-                token: self.current_token.clone(),
                 value: self.current_token.to_string(),
             });
         }
@@ -232,7 +221,6 @@ impl Parser {
     }
 
     fn parse_function_literal(&mut self) -> Option<Expression> {
-        let token = self.current_token.clone();
         if !self.expect_peek(Token::LPAREN) {
             return None;
         }
@@ -244,17 +232,14 @@ impl Parser {
         }
         let body = self.parse_block_statement();
         return Some(Expression::FunctionLiteral(ast::FunctionLiteral {
-            token,
             parameters: params,
             body,
         }));
     }
 
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
-        let token = self.current_token.clone();
         let arguments = self.parse_expression_list(Token::RPAREN)?;
         return Some(Expression::CallExpression(ast::CallExpression {
-            token,
             function: Box::new(function),
             arguments,
         }));
@@ -262,7 +247,6 @@ impl Parser {
 
     fn parse_string_literal(&mut self) -> Option<Expression> {
         return Some(Expression::StringLiteral(ast::StringLiteral {
-            token: self.current_token.clone(),
             value: self.current_token.to_string(),
         }));
     }
@@ -293,13 +277,11 @@ impl Parser {
 
     fn parse_array_literal(&mut self) -> Option<Expression> {
         return Some(Expression::ArrayLiteral(ast::ArrayLiteral {
-            token: self.current_token.clone(),
             elements: self.parse_expression_list(Token::RBRACKET)?,
         }));
     }
 
     fn parse_hash_literal(&mut self) -> Option<Expression> {
-        let token = self.current_token.clone();
         let mut pairs = Vec::new();
 
         while self.peek_token != Token::RBRACE && self.peek_token != Token::EOF {
@@ -323,13 +305,11 @@ impl Parser {
         }
 
         return Some(Expression::HashLiteral(ast::HashLiteral {
-            token,
             pairs,
         }));
     }
 
     fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
-        let token = self.current_token.clone();
         self.next_token();
 
         let index = self.parse_expression(Precedence::LOWEST)?;
@@ -338,7 +318,6 @@ impl Parser {
             return None;
         }
         return Some(Expression::IndexExpression(ast::IndexExpression {
-            token,
             left: Box::new(left),
             index: Box::new(index),
         }));
@@ -397,9 +376,7 @@ impl Parser {
                 }
 
                 return Some(Statement::LetStatement(ast::LetStatement {
-                    token: Token::LET,
                     name: ast::Identifier {
-                        token: Token::IDENT(Some(name.to_string())),
                         value: name.to_string(),
                     },
                     value: Box::new(value),
@@ -419,7 +396,6 @@ impl Parser {
         }
 
         return Some(Statement::ReturnStatement(ast::ReturnStatement {
-            token: Token::RETURN,
             value: Box::new(value),
         }));
     }
@@ -448,7 +424,6 @@ impl Parser {
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement> {
-        let tok = self.current_token.clone();
         let expr = self.parse_expression(Precedence::LOWEST);
 
         if self.peek_token == Token::SEMICOLON {
@@ -457,7 +432,6 @@ impl Parser {
 
         if let Some(e) = expr {
             return Some(Statement::ExpressionStatement(ast::ExpressionStatement {
-                token: tok,
                 expression: Box::new(e),
             }));
         }
@@ -489,11 +463,9 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::ast::Expression;
-    use crate::ast::Node;
     use crate::ast::Program;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
-    use crate::token::Token;
 
     fn check_parser_errors(p: Parser) {
         let errors = p.errors();
@@ -523,7 +495,6 @@ mod tests {
         assert_eq!(&program.statements.len(), &3);
 
         if let Statement::LetStatement(s) = &program.statements[0] {
-            assert_eq!(s.token_literal(), Token::LET.to_string());
             assert_eq!(s.name.value, "x".to_string());
             if let Expression::IntegerLiteral(i) = &*s.value {
                 assert_eq!(i.value, 5);
@@ -535,7 +506,6 @@ mod tests {
         }
 
         if let Statement::LetStatement(s) = &program.statements[1] {
-            assert_eq!(s.token_literal(), Token::LET.to_string());
             assert_eq!(s.name.value, "y".to_string());
             if let Expression::Boolean(b) = &*s.value {
                 assert_eq!(b.value, true);
@@ -547,7 +517,6 @@ mod tests {
         }
 
         if let Statement::LetStatement(s) = &program.statements[2] {
-            assert_eq!(s.token_literal(), Token::LET.to_string());
             assert_eq!(s.name.value, "foobar".to_string());
             if let Expression::Identifier(i) = &*s.value {
                 assert_eq!(i.value, "y");
@@ -642,7 +611,6 @@ return 993322;";
 
         for (s, v) in program.statements.iter().zip(values.iter()) {
             if let Statement::ReturnStatement(r) = s {
-                assert_eq!(r.token, Token::RETURN);
                 test_literal_expression(&r.value, v);
             } else {
                 panic!("not a return statement");

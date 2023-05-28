@@ -1,11 +1,5 @@
 use std::{hash::Hash, hash::Hasher};
 
-use crate::token::Token;
-
-pub trait Node {
-    fn token_literal(&self) -> String;
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expression {
     IntegerLiteral(IntegerLiteral),
@@ -57,23 +51,10 @@ impl Statement {
             Statement::BlockStatement(s) => s.to_string(),
         }
     }
-    pub fn token_literal(&self) -> String {
-        match self {
-            Statement::LetStatement(s) => s.token_literal(),
-            Statement::ReturnStatement(s) => s.token_literal(),
-            Statement::ExpressionStatement(s) => s.token_literal(),
-            Statement::BlockStatement(s) => s.token_literal(),
-        }
-    }
 }
 
 macro_rules! impl_traits {
     ($name:ty, $to_string:item) => {
-        impl Node for $name {
-            fn token_literal(&self) -> String {
-                return self.token.to_string();
-            }
-        }
         impl ToString for $name {
             $to_string
         }
@@ -85,14 +66,6 @@ pub struct Program {
 }
 
 impl Program {
-    fn token_literal(&self) -> String {
-        return self
-            .statements
-            .first()
-            .map(|s| s.token_literal())
-            .unwrap_or("".to_string());
-    }
-
     pub fn to_string(&self) -> String {
         return self
             .statements
@@ -105,7 +78,6 @@ impl Program {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LetStatement {
-    pub token: Token,
     pub name: Identifier,
     pub value: Box<Expression>,
 }
@@ -122,7 +94,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Identifier {
-    pub token: Token,
     pub value: String,
 }
 impl_traits!(
@@ -134,7 +105,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ReturnStatement {
-    pub token: Token,
     pub value: Box<Expression>,
 }
 impl_traits!(
@@ -146,7 +116,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ExpressionStatement {
-    pub token: Token,
     pub expression: Box<Expression>,
 }
 impl_traits!(
@@ -158,7 +127,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IntegerLiteral {
-    pub token: Token,
     pub value: i64,
 }
 impl_traits!(
@@ -170,7 +138,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PrefixExpression {
-    pub token: Token,
     pub operator: String,
     pub right: Box<Expression>,
 }
@@ -183,7 +150,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct InfixExpression {
-    pub token: Token,
     pub left: Box<Expression>,
     pub operator: String,
     pub right: Box<Expression>,
@@ -202,7 +168,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Boolean {
-    pub token: Token,
     pub value: bool,
 }
 impl_traits!(
@@ -214,7 +179,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct BlockStatement {
-    pub token: Token,
     pub statements: Vec<Statement>,
 }
 impl_traits!(
@@ -236,7 +200,6 @@ impl BlockStatement {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IfExpression {
-    pub token: Token,
     pub condition: Box<Expression>,
     pub consequence: BlockStatement,
     pub alternative: Option<BlockStatement>,
@@ -259,7 +222,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct FunctionLiteral {
-    pub token: Token,
     pub parameters: Vec<Identifier>,
     pub body: BlockStatement,
 }
@@ -280,7 +242,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct CallExpression {
-    pub token: Token,
     pub function: Box<Expression>,
     pub arguments: Vec<Expression>,
 }
@@ -301,7 +262,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct StringLiteral {
-    pub token: Token,
     pub value: String,
 }
 impl_traits!(
@@ -313,7 +273,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ArrayLiteral {
-    pub token: Token,
     pub elements: Vec<Expression>,
 }
 impl_traits!(
@@ -332,7 +291,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct IndexExpression {
-    pub token: Token,
     pub left: Box<Expression>,
     pub index: Box<Expression>,
 }
@@ -345,7 +303,6 @@ impl_traits!(
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct HashLiteral {
-    pub token: Token,
     pub pairs: Vec<(Expression, Expression)>,
 }
 impl_traits!(
@@ -370,19 +327,15 @@ impl Hash for HashLiteral {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::Token;
 
     #[test]
     fn test_string() {
         let program = Program {
             statements: vec![Statement::LetStatement(LetStatement {
-                token: Token::LET,
                 name: Identifier {
-                    token: Token::IDENT(Some("myVar".to_string())),
                     value: "myVar".to_string(),
                 },
                 value: Box::new(Expression::Identifier(Identifier {
-                    token: Token::IDENT(Some("anotherVar".to_string())),
                     value: "anotherVar".to_string(),
                 })),
             })],
