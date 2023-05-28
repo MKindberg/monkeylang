@@ -159,9 +159,7 @@ impl Parser {
             }
             self.next_token();
         }
-        return ast::BlockStatement {
-            statements: stmts,
-        };
+        return ast::BlockStatement { statements: stmts };
     }
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
@@ -304,9 +302,7 @@ impl Parser {
             return None;
         }
 
-        return Some(Expression::HashLiteral(ast::HashLiteral {
-            pairs,
-        }));
+        return Some(Expression::HashLiteral(ast::HashLiteral { pairs }));
     }
 
     fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
@@ -467,6 +463,25 @@ mod tests {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
 
+    macro_rules! unpack_expression {
+        ($expression_type:ident, $unpacked:ident, $packed: expr, $body:expr) => {
+            if let Expression::$expression_type($unpacked) = $packed {
+                $body
+            } else {
+                unreachable!()
+            }
+        };
+    }
+    macro_rules! unpack_statement {
+        ($statement_type:ident, $unpacked:ident, $packed: expr, $body:expr) => {
+            if let Statement::$statement_type($unpacked) = $packed {
+                $body
+            } else {
+                unreachable!()
+            }
+        };
+    }
+
     fn check_parser_errors(p: Parser) {
         let errors = p.errors();
         for e in errors.iter() {
@@ -494,69 +509,49 @@ mod tests {
 
         assert_eq!(&program.statements.len(), &3);
 
-        if let Statement::LetStatement(s) = &program.statements[0] {
+        unpack_statement!(LetStatement, s, &program.statements[0], {
             assert_eq!(s.name.value, "x".to_string());
-            if let Expression::IntegerLiteral(i) = &*s.value {
+            unpack_expression!(IntegerLiteral, i, &*s.value, {
                 assert_eq!(i.value, 5);
-            } else {
-                panic!("not an integer literal");
-            }
-        } else {
-            panic!("not a let statement");
-        }
+            });
+        });
 
-        if let Statement::LetStatement(s) = &program.statements[1] {
+        unpack_statement!(LetStatement, s, &program.statements[1], {
             assert_eq!(s.name.value, "y".to_string());
-            if let Expression::Boolean(b) = &*s.value {
+            unpack_expression!(Boolean, b, &*s.value, {
                 assert_eq!(b.value, true);
-            } else {
-                panic!("not an boolean");
-            }
-        } else {
-            panic!("not a let statement");
-        }
+            });
+        });
 
-        if let Statement::LetStatement(s) = &program.statements[2] {
+        unpack_statement!(LetStatement, s, &program.statements[2], {
             assert_eq!(s.name.value, "foobar".to_string());
-            if let Expression::Identifier(i) = &*s.value {
+            unpack_expression!(Identifier, i, &*s.value, {
                 assert_eq!(i.value, "y");
-            } else {
-                panic!("not an identifier");
-            }
-        } else {
-            panic!("not a let statement");
-        }
+            });
+        });
     }
 
     fn test_integer_literal(input: &Expression, value: i64) {
-        if let Expression::IntegerLiteral(i) = input {
+        unpack_expression!(IntegerLiteral, i, input, {
             assert_eq!(i.value, value);
-        } else {
-            panic!("not an integer literal");
-        }
+        });
     }
     fn test_boolean(input: &Expression, value: bool) {
-        if let Expression::Boolean(b) = input {
+        unpack_expression!(Boolean, b, input, {
             assert_eq!(b.value, value);
-        } else {
-            panic!("not a boolean");
-        }
+        });
     }
 
     fn test_identifier(input: &Expression, value: &str) {
-        if let Expression::Identifier(i) = input {
+        unpack_expression!(Identifier, i, input, {
             assert_eq!(i.value, value);
-        } else {
-            panic!("not an identifier");
-        }
+        });
     }
 
     fn test_string_literal(input: &Expression, value: &str) {
-        if let Expression::StringLiteral(s) = input {
+        unpack_expression!(StringLiteral, s, input, {
             assert_eq!(s.value, value);
-        } else {
-            panic!("not a string literal");
-        }
+        });
     }
 
     trait TestExpr {
@@ -581,21 +576,17 @@ mod tests {
         value.test(input);
     }
     fn test_infix_expression<T: TestExpr>(input: &Expression, left: &T, operator: &str, right: &T) {
-        if let Expression::InfixExpression(i) = input {
+        unpack_expression!(InfixExpression, i, input, {
             test_literal_expression(&i.left, left);
             assert_eq!(i.operator, operator);
             test_literal_expression(&i.right, right);
-        } else {
-            panic!("not an infix expression");
-        }
+        });
     }
     fn test_prefix_expression<T: TestExpr>(input: &Expression, operator: &str, right: &T) {
-        if let Expression::PrefixExpression(p) = input {
+        unpack_expression!(PrefixExpression, p, input, {
             assert_eq!(p.operator, operator);
             test_literal_expression(&p.right, right);
-        } else {
-            panic!("not an prefix expression");
-        }
+        });
     }
 
     #[test]
@@ -610,11 +601,9 @@ return 993322;";
         assert_eq!(&program.statements.len(), &values.len());
 
         for (s, v) in program.statements.iter().zip(values.iter()) {
-            if let Statement::ReturnStatement(r) = s {
+            unpack_statement!(ReturnStatement, r, &s, {
                 test_literal_expression(&r.value, v);
-            } else {
-                panic!("not a return statement");
-            }
+            });
         }
     }
 
@@ -625,11 +614,9 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
             test_identifier(&s.expression, "foobar");
-        } else {
-            panic!("not an expression statement");
-        }
+        })
     }
 
     #[test]
@@ -639,11 +626,9 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
             test_integer_literal(&s.expression, 5);
-        } else {
-            panic!("not an expression statement");
-        }
+        });
     }
 
     #[test]
@@ -653,11 +638,9 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
             test_boolean(&s.expression, true);
-        } else {
-            panic!("not an expression statement");
-        }
+        });
     }
 
     #[test]
@@ -701,22 +684,18 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            unpack_statement!(ExpressionStatement, s, &program.statements[0], {
                 test_prefix_expression(&s.expression, &t.operator, &t.value);
-            } else {
-                panic!("not an expression statement");
-            }
+            });
         }
 
         for t in bool_tests.iter() {
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            unpack_statement!(ExpressionStatement, s, &program.statements[0], {
                 test_prefix_expression(&s.expression, &t.operator, &t.value);
-            } else {
-                panic!("not an expression statement");
-            }
+            });
         }
     }
 
@@ -774,22 +753,18 @@ return 993322;";
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            unpack_statement!(ExpressionStatement, s, &program.statements[0], {
                 test_infix_expression(&s.expression, &t.left, t.operator.as_str(), &t.right);
-            } else {
-                panic!("not an expression statement");
-            }
+            });
         }
 
         for t in bool_tests.iter() {
             let program = read_program(&t.input);
 
             assert_eq!(program.statements.len(), 1);
-            if let Statement::ExpressionStatement(s) = &program.statements[0] {
+            unpack_statement!(ExpressionStatement, s, &program.statements[0], {
                 test_infix_expression(&s.expression, &t.left, t.operator.as_str(), &t.right);
-            } else {
-                panic!("not an expression statement");
-            }
+            });
         }
     }
 
@@ -858,22 +833,16 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::IfExpression(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(IfExpression, e, &*s.expression, {
                 test_infix_expression(&e.condition, &"x", &"<", &"y");
                 assert_eq!(e.consequence.statements.len(), 1);
-                if let Statement::ExpressionStatement(s) = &e.consequence.statements[0] {
+                unpack_statement!(ExpressionStatement, s, &e.consequence.statements[0], {
                     test_literal_expression(&s.expression, &"x");
-                } else {
-                    panic!("not an expression statement");
-                }
+                });
                 assert!(e.alternative.is_none());
-            } else {
-                panic!("not an if expression");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -883,31 +852,23 @@ return 993322;";
         let program = read_program(input);
 
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::IfExpression(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(IfExpression, e, &*s.expression, {
                 test_infix_expression(&e.condition, &"x", &"<", &"y");
                 assert_eq!(e.consequence.statements.len(), 1);
-                if let Statement::ExpressionStatement(s) = &e.consequence.statements[0] {
+                unpack_statement!(ExpressionStatement, s, &e.consequence.statements[0], {
                     test_literal_expression(&s.expression, &"x");
-                } else {
-                    panic!("not an expression statement");
-                }
+                });
                 if let Some(b) = &e.alternative {
                     assert_eq!(b.statements.len(), 1);
-                    if let Statement::ExpressionStatement(s) = &b.statements[0] {
+                    unpack_statement!(ExpressionStatement, s, &b.statements[0], {
                         test_literal_expression(&s.expression, &"y");
-                    } else {
-                        panic!("not an expression statement");
-                    }
+                    });
                 } else {
-                    panic!("not a block statement");
+                    panic!("No else branch");
                 }
-            } else {
-                panic!("not an if expression");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -918,24 +879,18 @@ return 993322;";
 
         assert_eq!(program.statements.len(), 1);
 
-        if let Statement::ExpressionStatement(e) = &program.statements[0] {
-            if let Expression::FunctionLiteral(f) = &*e.expression {
+        unpack_statement!(ExpressionStatement, e, &program.statements[0], {
+            unpack_expression!(FunctionLiteral, f, &*e.expression, {
                 assert_eq!(f.parameters.len(), 2);
                 assert_eq!(&f.parameters[0].value, &"x");
                 assert_eq!(&f.parameters[1].value, &"y");
 
                 assert_eq!(f.body.statements.len(), 1);
-                if let Statement::ExpressionStatement(s) = &f.body.statements[0] {
+                unpack_statement!(ExpressionStatement, s, &f.body.statements[0], {
                     test_infix_expression(&s.expression, &"x", &"+", &"y");
-                } else {
-                    panic!("not an expression statement");
-                }
-            } else {
-                panic!("not a function literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+                });
+            });
+        });
     }
 
     #[test]
@@ -950,18 +905,14 @@ return 993322;";
             let program = read_program(t.0);
             assert_eq!(program.statements.len(), 1);
 
-            if let Statement::ExpressionStatement(s) = &program.statements[0] {
-                if let Expression::FunctionLiteral(f) = &*s.expression {
+            unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+                unpack_expression!(FunctionLiteral, f, &*s.expression, {
                     assert_eq!(f.parameters.len(), t.1.len());
                     for (i, p) in f.parameters.iter().enumerate() {
                         assert_eq!(p.value, t.1[i]);
                     }
-                } else {
-                    panic!("not a function literal");
-                }
-            } else {
-                panic!("not an expression statement");
-            }
+                });
+            });
         }
     }
 
@@ -972,20 +923,16 @@ return 993322;";
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
 
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::CallExpression(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(CallExpression, e, &*s.expression, {
                 test_literal_expression(&e.function, &"add");
                 assert_eq!(e.arguments.len(), 3);
 
                 test_literal_expression(&e.arguments[0], &1);
                 test_infix_expression(&e.arguments[1], &2, &"*", &3);
                 test_infix_expression(&e.arguments[2], &4, &"+", &5);
-            } else {
-                panic!("not a call expression");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -994,15 +941,11 @@ return 993322;";
 
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::StringLiteral(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(StringLiteral, e, &*s.expression, {
                 assert_eq!(e.value, "hello world");
-            } else {
-                panic!("not a string literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -1011,18 +954,14 @@ return 993322;";
 
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::ArrayLiteral(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(ArrayLiteral, e, &*s.expression, {
                 assert_eq!(e.elements.len(), 3);
                 test_literal_expression(&e.elements[0], &1);
                 test_infix_expression(&e.elements[1], &2, &"*", &2);
                 test_infix_expression(&e.elements[2], &3, &"+", &3);
-            } else {
-                panic!("not an array literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -1032,16 +971,12 @@ return 993322;";
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
 
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::IndexExpression(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(IndexExpression, e, &*s.expression, {
                 test_identifier(&e.left, &"myArray");
                 test_infix_expression(&e.index, &1, &"+", &1);
-            } else {
-                panic!("not an index expression");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -1050,8 +985,8 @@ return 993322;";
 
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::HashLiteral(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(HashLiteral, e, &*s.expression, {
                 assert_eq!(e.pairs.len(), 3);
                 let keys = ["one", "two", "three"];
                 let values = [1, 2, 3];
@@ -1059,12 +994,8 @@ return 993322;";
                     test_string_literal(k, &keys[i]);
                     test_literal_expression(v, &values[i]);
                 }
-            } else {
-                panic!("not a hash literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -1073,15 +1004,11 @@ return 993322;";
 
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::HashLiteral(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(HashLiteral, e, &*s.expression, {
                 assert_eq!(e.pairs.len(), 0);
-            } else {
-                panic!("not a hash literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 
     #[test]
@@ -1090,8 +1017,8 @@ return 993322;";
 
         let program = read_program(input);
         assert_eq!(program.statements.len(), 1);
-        if let Statement::ExpressionStatement(s) = &program.statements[0] {
-            if let Expression::HashLiteral(e) = &*s.expression {
+        unpack_statement!(ExpressionStatement, s, &program.statements[0], {
+            unpack_expression!(HashLiteral, e, &*s.expression, {
                 assert_eq!(e.pairs.len(), 3);
                 test_string_literal(&e.pairs[0].0, &"one");
                 test_string_literal(&e.pairs[1].0, &"two");
@@ -1100,11 +1027,7 @@ return 993322;";
                 test_infix_expression(&e.pairs[0].1, &0, &"+", &1);
                 test_infix_expression(&e.pairs[1].1, &10, &"-", &8);
                 test_infix_expression(&e.pairs[2].1, &15, &"/", &5);
-            } else {
-                panic!("not a hash literal");
-            }
-        } else {
-            panic!("not an expression statement");
-        }
+            });
+        });
     }
 }
