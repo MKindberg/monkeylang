@@ -1,8 +1,10 @@
+use crate::compiler::Compiler;
 use crate::lexer::Lexer;
+use crate::object::{Environment, Object};
 use crate::parser::Parser;
-use crate::object::Environment;
+use crate::symbol_table::SymbolTable;
+use crate::{evaluator, vm::VM};
 use std::io::Write;
-use crate::evaluator;
 
 const PROMPT: &str = ">> ";
 
@@ -21,6 +23,10 @@ const MONKEY_FACE: &str = r#"            __,__
 
 pub fn start() {
     let mut env = Environment::new();
+    let mut constants: Vec<Object> = vec![];
+    let mut globals = vec![Object::Null; crate::vm::GLOBALS_SIZE];
+    let mut symbol_table = SymbolTable::new();
+
     loop {
         let mut input = String::new();
         print!("{}", PROMPT);
@@ -41,7 +47,26 @@ pub fn start() {
                 println!("{}", e);
             }
         }
-        let evaluated = evaluator::eval(&program, &mut env);
+        // let evaluated = evaluator::eval(&program, &mut env);
+        let mut comp = Compiler::new_with_state(symbol_table, constants);
+        if let Err(s) = comp.compile(program) {
+            println!("Compilation error: {}", s);
+            symbol_table = comp.symbol_table.clone();
+            constants = comp.constants.clone();
+            continue;
+        }
+        symbol_table = comp.symbol_table.clone();
+        constants = comp.constants.clone();
+
+        let mut machine = VM::new_with_gobals_store(comp.bytecode(), globals);
+
+        if let Err(s) = machine.run() {
+            println!("Bytecode execution failed: {}", s);
+            globals = machine.globals.clone();
+            continue;
+        }
+        globals = machine.globals.clone();
+        let evaluated = machine.last_popped_stack_elem();
         println!("{}", evaluated);
     }
 }

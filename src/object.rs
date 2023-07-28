@@ -1,4 +1,5 @@
 use crate::ast::{BlockStatement, Identifier};
+use crate::code::{self, Instructions};
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 
@@ -13,6 +14,7 @@ pub enum Object {
     Array(Vec<Object>),
     HashMap(std::collections::HashMap<Object, Object>),
     Error(String),
+    CompiledFunction(CompiledFunction),
     Null,
 }
 
@@ -40,6 +42,7 @@ impl Object {
                     .join(", ")
             ),
             Object::Error(s) => s.to_string(),
+            Object::CompiledFunction(c) => "compiled function".to_string(),
             Object::Null => "null".to_string(),
         }
     }
@@ -55,6 +58,7 @@ impl Object {
             Object::Array(_) => "ARRAY",
             Object::HashMap(_) => "HASH_MAP",
             Object::Error(_) => "ERROR",
+            Object::CompiledFunction(_) => "COMPILED_FUNCTION",
             Object::Null => "NULL",
         }
     }
@@ -155,6 +159,22 @@ impl Function {
                 .join(", "),
             self.body.to_string(),
         )
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CompiledFunction {
+    pub instructions: code::Instructions,
+}
+
+impl CompiledFunction {
+    pub fn new(instructions: Instructions) -> Self {
+        CompiledFunction { instructions }
+    }
+    pub fn new_from_array(instructions: &[Instructions]) -> Self {
+        CompiledFunction {
+            instructions: Instructions::from_vec(instructions.iter().flatten().copied().collect()),
+        }
     }
 }
 
