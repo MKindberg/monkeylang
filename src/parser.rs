@@ -232,6 +232,7 @@ impl Parser {
         return Some(Expression::FunctionLiteral(ast::FunctionLiteral {
             parameters: params,
             body,
+            name: "".to_string(),
         }));
     }
 
@@ -362,10 +363,16 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Option<Statement> {
-        if self.expect_peek(Token::IDENT(None)) && let Token::IDENT(Some(name)) = self.current_token.clone() {
+        if !self.expect_peek(Token::IDENT(None)) {
+            return None;
+        }
+        if let Token::IDENT(Some(name)) = self.current_token.clone() {
             if self.expect_peek(Token::ASSIGN) {
                 self.next_token();
-                let value = self.parse_expression(Precedence::LOWEST)?;
+                let mut value = self.parse_expression(Precedence::LOWEST)?;
+                if let Expression::FunctionLiteral(func) = &mut value {
+                    func.name = name.to_string();
+                }
 
                 if self.peek_token == Token::SEMICOLON {
                     self.next_token();
@@ -1027,6 +1034,19 @@ return 993322;";
                 test_infix_expression(&e.pairs[0].1, &0, &"+", &1);
                 test_infix_expression(&e.pairs[1].1, &10, &"-", &8);
                 test_infix_expression(&e.pairs[2].1, &15, &"/", &5);
+            });
+        });
+    }
+
+    #[test]
+    fn test_function_literal_with_name() {
+        let input = "let myFunction = fn() {};";
+
+        let program = read_program(input);
+        assert_eq!(program.statements.len(), 1);
+        unpack_statement!(LetStatement, s, &program.statements[0], {
+            unpack_expression!(FunctionLiteral, f, &*s.value, {
+                assert_eq!(f.name, "myFunction");
             });
         });
     }

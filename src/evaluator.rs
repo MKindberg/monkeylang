@@ -66,7 +66,7 @@ fn eval_let_statement(let_stmt: &ast::LetStatement, env: &mut Environment) -> Ob
     Object::Null
 }
 
-fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Object {
+fn eval_expression(expression: &ast::Expression, env: & mut Environment) -> Object {
     match expression {
         Expression::IntegerLiteral(i) => Object::Integer(i.value),
         Expression::Boolean(b) => Object::Boolean(b.value),
@@ -81,7 +81,7 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
         Expression::FunctionLiteral(f) => Object::Function(Function::new(
             f.parameters.clone(),
             f.body.clone(),
-            env.clone(),
+            env,
         )),
         Expression::CallExpression(c) => eval_call_expression(&c.function, &c.arguments, env),
         Expression::StringLiteral(s) => Object::String(s.value.clone()),
@@ -91,7 +91,7 @@ fn eval_expression(expression: &ast::Expression, env: &mut Environment) -> Objec
     }
 }
 
-fn eval_prefix_expression(operator: &str, right: &Expression, env: &mut Environment) -> Object {
+fn eval_prefix_expression(operator: &str, right: &Expression, env: & mut Environment) -> Object {
     let r = eval_expression(right, env);
     if let Object::Error(_) = r {
         return r;
@@ -455,7 +455,10 @@ mod tests {
             ),
             ("foobar;", "identifier not found: foobar"),
             (r#""Hello" - "World""#, "unknown operator: STRING - STRING"),
-            (r#"{"name": "Monkey"}[fn(x) { x }];"#, "unusable as hash key: FUNCTION"),
+            (
+                r#"{"name": "Monkey"}[fn(x) { x }];"#,
+                "unusable as hash key: FUNCTION",
+            ),
         ];
 
         for (input, expected) in tests {
@@ -463,7 +466,10 @@ mod tests {
             if let Object::Error(e) = evaluated {
                 assert_eq!(e, expected);
             } else {
-                panic!("Error parsing {}. Got '{}', expected '{}'", input, evaluated, expected);
+                panic!(
+                    "Error parsing {}. Got '{}', expected '{}'",
+                    input, evaluated, expected
+                );
             }
         }
     }
@@ -652,5 +658,26 @@ mod tests {
         for (input, expected) in tests {
             assert_eq!(test_eval(input), expected);
         }
+    }
+
+    #[test]
+    fn test_recursive_function() {
+        assert_eq!(
+            test_eval(
+                "let fibonacci = fn(x) {
+  if (x == 0) {
+    0
+  } else {
+    if (x == 1) {
+      return 1;
+    } else {
+      fibonacci(x - 1) + fibonacci(x - 2);
+    }
+  }
+};
+fibonacci(3);"
+            ),
+            Object::Integer(2)
+        );
     }
 }

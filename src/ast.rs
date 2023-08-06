@@ -61,6 +61,7 @@ macro_rules! impl_traits {
     };
 }
 
+#[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
 }
@@ -224,12 +225,14 @@ impl_traits!(
 pub struct FunctionLiteral {
     pub parameters: Vec<Identifier>,
     pub body: BlockStatement,
+    pub name: String,
 }
 impl_traits!(
     FunctionLiteral,
     fn to_string(&self) -> String {
         format!(
-            "fn ({}) {}",
+            "fn {}({}) {}",
+            self.name,
             self.parameters
                 .iter()
                 .map(|p| p.to_string())

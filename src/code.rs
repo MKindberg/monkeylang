@@ -105,6 +105,12 @@ pub enum Opcode {
     Call,
     ReturnValue,
     Return,
+    SetLocal,
+    GetLocal,
+    GetBuiltin,
+    Closure,
+    GetFree,
+    CurrentClosure,
 }
 
 impl Opcode {
@@ -115,6 +121,8 @@ impl Opcode {
         use Opcode::*;
         match self {
             Constant | JumpNotThuthy | Jump | SetGlobal | GetGlobal | Array | Hash => vec![2],
+            SetLocal | GetLocal | Call | GetBuiltin | GetFree => vec![1],
+            Closure => vec![2, 1],
             _ => vec![],
         }
     }
@@ -145,17 +153,23 @@ impl Opcode {
             Call,
             ReturnValue,
             Return,
+            SetLocal,
+            GetLocal,
+            GetBuiltin,
+            Closure,
+            GetFree,
+            CurrentClosure
         ];
-        for c in codes {
-            if c as u8 == op {
-                return Ok(c);
+        for c in &codes {
+            if c.clone() as u8 == op {
+                return Ok(c.clone());
             }
         }
         Err("Unknown opcode")
     }
     pub fn to_instruction(&self, operands: &[usize]) -> Instructions {
         let mut instruction = Instructions::new();
-        instruction.push(*self as u8);
+        instruction.push(self.clone() as u8);
         for (o, w) in operands.iter().zip(self.operand_widths()) {
             let o_bytes = o.to_be_bytes();
             instruction.extend_from_slice(&o_bytes[o_bytes.len() - w..]);
@@ -169,6 +183,7 @@ impl Opcode {
         let mut read_operands = vec![];
         for w in &operand_width {
             match w {
+                1 => read_operands.push(operands[i] as usize),
                 2 => read_operands
                     .push(u16::from_be_bytes(operands[i..i + w].try_into().unwrap()) as usize),
                 _ => panic!("Unsupported operand width"),
@@ -214,6 +229,12 @@ mod tests {
                 vec![Opcode::Constant as u8, 255, 254],
             ),
             (Opcode::Add, vec![], vec![Opcode::Add as u8]),
+            (
+                Opcode::GetLocal,
+                vec![255],
+                vec![Opcode::GetLocal as u8, 255],
+            ),
+            (Opcode::Closure, vec![65534, 255], vec![Opcode::Closure as u8, 255, 254, 255]),
         ];
         for t in tests {
             let instruction = t.0.to_instruction(&t.1);
@@ -229,16 +250,20 @@ mod tests {
     fn test_instruction_string() {
         let instructions: Instructions = vec![
             Opcode::Add.to_instruction(&vec![]),
+            Opcode::GetLocal.to_instruction(&vec![1]),
             Opcode::Constant.to_instruction(&vec![2]),
             Opcode::Constant.to_instruction(&vec![65535]),
+            Opcode::Closure.to_instruction(&vec![65534, 255]),
         ]
         .iter()
         .flatten()
         .copied()
         .collect();
         let expected = "0000 OpAdd
-0001 OpConstant 2
-0004 OpConstant 65535
+0001 OpGetLocal 1
+0003 OpConstant 2
+0006 OpConstant 65535
+0009 OpClosure 65534 255
 ";
 
         assert_eq!(instructions_to_string(instructions), expected);
@@ -246,7 +271,11 @@ mod tests {
 
     #[test]
     fn test_read_operands() {
-        let tests = vec![(Opcode::Constant, vec![65535], 2)];
+        let tests = vec![
+            (Opcode::Constant, vec![65535], 2),
+            (Opcode::GetLocal, vec![255], 1),
+            (Opcode::Closure, vec![65534, 255], 3),
+        ];
 
         for (op, expected_operands, expected_bytes_read) in tests {
             let instruction = op.to_instruction(&expected_operands);

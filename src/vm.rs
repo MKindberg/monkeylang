@@ -1,8 +1,8 @@
 use crate::{
     code::{Instructions, Opcode},
     compiler,
-    object::CompiledFunction,
     object::Object,
+    object::{self, Closure, CompiledFunction},
 };
 
 macro_rules! read_arg {
@@ -16,17 +16,22 @@ macro_rules! read_arg {
 }
 
 struct Frame {
-    func: CompiledFunction,
+    cl: Closure,
     ip: usize,
+    base_pointer: usize,
 }
 
 impl Frame {
-    fn new(func: CompiledFunction) -> Frame {
-        Frame { func, ip: 0 }
+    fn new(cl: Closure, base_pointer: usize) -> Frame {
+        Frame {
+            cl,
+            ip: 0,
+            base_pointer,
+        }
     }
 
     fn instructions(&self) -> Instructions {
-        self.func.instructions.clone()
+        self.cl.func.instructions.clone()
     }
 }
 
@@ -48,9 +53,13 @@ impl VM {
             stack: vec![Object::Null; STACK_SIZE],
             sp: 0,
             globals: vec![Object::Null; GLOBALS_SIZE],
-            frames: vec![Frame::new(CompiledFunction {
-                instructions: bytecode.instructions,
-            })],
+            frames: vec![Frame::new(
+                Closure {
+                    func: CompiledFunction::new(bytecode.instructions, 0, 0),
+                    free: vec![],
+                },
+                0,
+            )],
             fames_index: 1,
         }
     }
@@ -205,24 +214,94 @@ impl VM {
                     }
                 }
                 Opcode::Call => {
-                    if let Object::CompiledFunction(func) = self.stack[self.sp - 1].clone() {
-                        let frame = Frame::new(func);
-                        self.push_frame(frame);
-                        ip = 0;
+                    let num_args = read_arg!(self.current_frame().instructions(), ip, u8);
+                    self.current_frame().ip += 1;
+                    ip += 1;
+                    match self.stack[self.sp - 1 - num_args].clone() {
+                        Object::Closure(cl) => {
+                            if num_args != cl.func.num_parameters {
+                                return Err(format!(
+                                    "wrong number of arguments: want={}, got={}",
+                                    cl.func.num_parameters, num_args,
+                                ));
+                            }
+                            let frame = Frame::new(cl, self.sp - num_args);
+                            let frame_locals = frame.cl.func.num_locals;
+                            self.push_frame(frame);
+                            ip = 0;
+                            self.sp += frame_locals;
+                        }
+                        Object::Builtin(func) => {
+                            let args = &self.stack[self.sp - num_args..self.sp];
+                            let result = func.execute(args);
+                            self.sp -= num_args - 1;
+                            self.push(result)?;
+                        }
+                        _ => return Err("Cannot execute non-function".to_string()),
                     }
                 }
                 Opcode::ReturnValue => {
                     let return_value = self.pop();
-                    self.pop_frame();
-                    self.pop();
+                    let frame = self.pop_frame();
+                    self.sp = frame.base_pointer - 1;
                     self.push(return_value)?;
                     ip = self.current_frame().ip + 1;
                 }
                 Opcode::Return => {
-                    self.pop_frame();
-                    self.pop();
+                    let frame = self.pop_frame();
+                    self.sp = frame.base_pointer - 1;
                     self.push(Object::Null)?;
                     ip = self.current_frame().ip + 1;
+                }
+                Opcode::SetLocal => {
+                    let local_index = read_arg!(self.current_frame().instructions(), ip, u8);
+                    ip += 1;
+
+                    let bp = self.current_frame().base_pointer;
+                    self.stack[bp + local_index] = self.pop();
+                }
+                Opcode::GetLocal => {
+                    let local_index = read_arg!(self.current_frame().instructions(), ip, u8);
+                    ip += 1;
+
+                    let bp = self.current_frame().base_pointer;
+                    let val = self.stack[bp + local_index].clone();
+                    self.push(val)?;
+                }
+                Opcode::GetBuiltin => {
+                    let builtin_index = read_arg!(self.current_frame().instructions(), ip, u8);
+                    ip += 1;
+
+                    let definition = &object::BuiltinFunction::list()[builtin_index as usize];
+
+                    self.push(Object::Builtin(definition.clone()))?;
+                }
+                Opcode::Closure => {
+                    let const_index = read_arg!(self.current_frame().instructions(), ip, u16);
+                    ip += 2;
+                    let num_free = read_arg!(self.current_frame().instructions(), ip, u8);
+                    ip += 1;
+
+                    let constant = self.constants[const_index].clone();
+                    if let Object::CompiledFunction(func) = constant {
+                        let free = self.stack[self.sp - num_free..self.sp].to_owned();
+                        self.sp -= num_free;
+                        let cl = Closure { func, free };
+                        self.push(Object::Closure(cl))?;
+                    } else {
+                        return Err("Not a function".to_string());
+                    }
+                }
+                Opcode::GetFree => {
+                    let free_index = read_arg!(self.current_frame().instructions(), ip, u8);
+                    ip += 1;
+
+                    let free = self.current_frame().cl.free[free_index].clone();
+                    self.push(free)?;
+                }
+                Opcode::CurrentClosure => {
+                    let current_closure = self.current_frame().cl.clone();
+                    self.push(Object::Closure(current_closure))?
                 }
                 _ => return Err(format!("{} Not implemented", op.to_string())),
             }
@@ -298,11 +377,24 @@ mod tests {
 
     struct VmTestCase {
         input: &'static str,
-        expected: object::Object,
+        expected: Option<object::Object>,
+        error: Option<&'static str>,
     }
     impl VmTestCase {
         fn new(input: &'static str, expected: object::Object) -> VmTestCase {
-            VmTestCase { input, expected }
+            VmTestCase {
+                input,
+                expected: Some(expected),
+                error: None,
+            }
+        }
+
+        fn new_error(input: &'static str, error: &'static str) -> VmTestCase {
+            VmTestCase {
+                input,
+                expected: None,
+                error: Some(error),
+            }
         }
     }
 
@@ -322,11 +414,17 @@ mod tests {
 
             let mut vm = VM::new(compiler.bytecode());
             if let Err(e) = vm.run() {
-                panic!("{}", e);
+                if let Some(expected_error) = test.error {
+                    assert_eq!(e.as_str(), expected_error);
+                } else {
+                    panic!("{}", e);
+                }
             }
 
-            let stack_elem = vm.last_popped_stack_elem();
-            assert_eq!(&test.expected, stack_elem);
+            if let Some(e) = &test.expected {
+                let stack_elem = vm.last_popped_stack_elem();
+                assert_eq!(e, stack_elem);
+            }
         }
     }
 
@@ -555,9 +653,268 @@ mod tests {
 
     #[test]
     fn test_first_class_functions() {
-        let tests = vec![VmTestCase::new("let returnsOne = fn() { 1; };
+        let tests = vec![
+            VmTestCase::new(
+                "let returnsOne = fn() { 1; };
         let returnsOneReturner = fn() { returnsOne; };
-        returnsOneReturner()();", Object::Integer(1))];
+        returnsOneReturner()();",
+                Object::Integer(1),
+            ),
+            VmTestCase::new(
+                "let returnsOneReturner = fn() {
+            let returnsOne = fn() { 1; };
+            returnsOne;
+        };
+        returnsOneReturner()();",
+                Object::Integer(1),
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_calling_functions_with_bindings() {
+        use Object::Integer;
+
+        let tests = vec![
+            VmTestCase::new("let one = fn() { let one = 1; one }; one();", Integer(1)),
+            VmTestCase::new(
+                "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; }; oneAndTwo();",
+                Integer(3),
+            ),
+            VmTestCase::new(
+                "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; };
+        let threeAndFour = fn() { let three = 3; let four = 4; three + four; };
+        oneAndTwo() + threeAndFour();",
+                Integer(10),
+            ),
+            VmTestCase::new(
+                "let firstFoobar = fn() { let foobar = 50; foobar; };
+        let secondFoobar = fn() { let foobar = 100; foobar; };
+        firstFoobar() + secondFoobar();",
+                Integer(150),
+            ),
+            VmTestCase::new(
+                "let globalSeed = 50;
+        let minusOne = fn() {
+            let num = 1;
+            globalSeed - num;
+        }
+        let minusTwo = fn() {
+            let num = 2;
+            globalSeed - num;
+        }
+        minusOne() + minusTwo();",
+                Integer(97),
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_calling_functions_with_arguments_and_bindings() {
+        use Object::Integer;
+
+        let tests = vec![
+            VmTestCase::new("let identity = fn(a) { a; }; identity(4);", Integer(4)),
+            VmTestCase::new("let sum = fn(a, b) { a + b; }; sum(1, 2);", Integer(3)),
+            VmTestCase::new(
+                "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2);",
+                Integer(3),
+            ),
+            VmTestCase::new(
+                "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2) + sum(3, 4);",
+                Integer(10),
+            ),
+            VmTestCase::new(
+                "let sum = fn(a, b) { let c = a + b; c; };
+        let outer = fn() { sum(1, 2) + sum(3, 4); };
+        outer();",
+                Integer(10),
+            ),
+            VmTestCase::new(
+                "let globalNum = 10;
+        let sum = fn(a, b) { let c = a + b; c + globalNum; };
+        let outer = fn() { sum(1, 2) + sum(3, 4) + globalNum; };
+        outer() + globalNum;",
+                Integer(50),
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_calling_functions_with_wrong_arguments() {
+        let tests = vec![
+            VmTestCase::new_error(
+                "fn() { 1; }(1);",
+                "wrong number of arguments: want=0, got=1",
+            ),
+            VmTestCase::new_error(
+                "fn(a) { a; }();",
+                "wrong number of arguments: want=1, got=0",
+            ),
+            VmTestCase::new_error(
+                "fn(a, b) { a + b; }(1);",
+                "wrong number of arguments: want=2, got=1",
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_builtin_functions() {
+        use Object::Integer;
+        let tests = vec![
+            VmTestCase::new(r#"len("")"#, Integer(0)),
+            VmTestCase::new(r#"len("four")"#, Integer(4)),
+            VmTestCase::new(r#"len("hello world")"#, Integer(11)),
+            VmTestCase::new(
+                "len(1)",
+                Object::Error("argument to `len` not supported, got INTEGER".to_string()),
+            ),
+            VmTestCase::new(
+                r#"len("one", "two")"#,
+                Object::Error("wrong number of arguments. got=2, want=1".to_string()),
+            ),
+            VmTestCase::new("len([1, 2, 3])", Integer(3)),
+            VmTestCase::new("len([])", Integer(0)),
+            VmTestCase::new(r#"puts("hello", "world!")"#, Object::Null),
+            VmTestCase::new("first([1, 2, 3])", Integer(1)),
+            VmTestCase::new("first([])", Object::Null),
+            VmTestCase::new(
+                "first(1)",
+                Object::Error("argument to `first` must be ARRAY, got INTEGER".to_string()),
+            ),
+            VmTestCase::new("last([1, 2, 3])", Integer(3)),
+            VmTestCase::new("last([])", Object::Null),
+            VmTestCase::new(
+                "last(1)",
+                Object::Error("argument to `last` must be ARRAY, got INTEGER".to_string()),
+            ),
+            VmTestCase::new(
+                "rest([1, 2, 3])",
+                Object::Array(vec![Integer(2), Integer(3)]),
+            ),
+            VmTestCase::new("rest([])", Object::Null),
+            VmTestCase::new("push([], 1)", Object::Array(vec![Integer(1)])),
+            VmTestCase::new(
+                "push(1, 1)",
+                Object::Error("argument to `push` must be ARRAY, got INTEGER".to_string()),
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_closures() {
+        let tests =
+            vec![VmTestCase::new(
+            "let newClosure = fn(a) { fn() { a; }; }; let closure = newClosure(99); closure();",
+            Object::Integer(99),
+        ),
+        VmTestCase::new("let newAdder = fn(a, b) {
+            fn(c) { a + b + c };
+        };
+        let adder = newAdder(1, 2);
+        adder(8);", Object::Integer(11)), 
+        VmTestCase::new("let newAdder = fn(a, b) {
+            let c = a + b;
+            fn(d) { c + d };
+        };
+        let adder = newAdder(1, 2);
+        adder(8);", Object::Integer(11)),
+                VmTestCase::new("let newAdderOuter = fn(a, b) {
+            let c = a + b;
+            fn(d) {
+                let e = d + c;
+                fn(f) { e + f; };
+            };
+        };
+        let newAdderInner = newAdderOuter(1, 2)
+        let adder = newAdderInner(3);
+        adder(8);", Object::Integer(14)),
+                VmTestCase::new("let a = 1;
+        let newAdderOuter = fn(b) {
+            fn(c) {
+                fn(d) { a + b + c + d };
+            };
+        };
+        let newAdderInner = newAdderOuter(2)
+        let adder = newAdderInner(3);
+        adder(8);", Object::Integer(14)),
+                VmTestCase::new("let newClosure = fn(a, b) {
+            let one = fn() { a; };
+            let two = fn() { b; };
+            fn() { one() + two(); };
+        };
+        let closure = newClosure(9, 90);
+        closure();", Object::Integer(99))
+            ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_recursive_functions() {
+        let tests = vec![
+            VmTestCase::new(
+                "let countDown = fn(x) {
+            if (x == 0) {
+                return 0;
+            } else {
+                countDown(x - 1);
+            }
+        };
+        countDown(1);",
+                Object::Integer(0),
+            ),
+            VmTestCase::new(
+                "let countDown = fn(x) {
+            if (x == 0) {
+                return 0;
+            } else {
+                countDown(x - 1);
+            }
+        };
+        let wrapper = fn() {
+            countDown(1);
+        };
+        wrapper();",
+                Object::Integer(0),
+            ),
+            VmTestCase::new(
+                "let wrapper = fn() {
+            let countDown = fn(x) {
+                if (x == 0) {
+                    return 0;
+                } else {
+                    countDown(x - 1);
+                }
+            };
+            countDown(1);
+        };
+        wrapper();",
+                Object::Integer(0),
+            ),
+        ];
+        run_vm_tests(tests);
+    }
+
+    #[test]
+    fn test_recursive_fibonacci() {
+        let tests = vec![
+        VmTestCase::new("let fibonacci = fn(x) {
+            if (x == 0) {
+                return 0;
+            } else {
+                if (x == 1) {
+                    return 1;
+                } else {
+                    fibonacci(x - 1) + fibonacci(x - 2);
+                }
+            }
+        };
+        fibonacci(15);", Object::Integer(610))];
         run_vm_tests(tests);
     }
 }

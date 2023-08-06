@@ -1,7 +1,7 @@
-use crate::ast;
 use crate::code::{Instructions, Opcode};
 use crate::object::{CompiledFunction, Object};
 use crate::symbol_table::*;
+use crate::{ast, object};
 
 pub struct Bytecode {
     pub instructions: Instructions,
@@ -29,9 +29,13 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Compiler {
+        let mut symbol_table = SymbolTable::new();
+        for (i, b) in object::BuiltinFunction::list().iter().enumerate() {
+            symbol_table.define_builtin(i, b.to_name());
+        }
         Compiler {
             constants: vec![],
-            symbol_table: SymbolTable::new(),
+            symbol_table,
             scopes: vec![CompilationScope {
                 instructions: Instructions::new(),
                 last_instruction: None,
@@ -72,12 +76,27 @@ impl Compiler {
             previous_instruction: None,
         });
         self.scope_index += 1;
+
+        let cur_sumbol_table = self.symbol_table.clone();
+        self.symbol_table = SymbolTable::new_enclosed(cur_sumbol_table);
     }
 
     fn leave_scope(&mut self) -> Instructions {
         self.scope_index -= 1;
         let scope = self.scopes.pop().unwrap();
+        let outer_symbol_table = self.symbol_table.outer.take();
+        self.symbol_table = *outer_symbol_table.unwrap();
         return scope.instructions;
+    }
+
+    fn load_symbol(&mut self, s: &Symbol) {
+        match s.scope {
+            SymbolScope::Global => self.emit(Opcode::GetGlobal, &[s.index]),
+            SymbolScope::Local => self.emit(Opcode::GetLocal, &[s.index]),
+            SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[s.index]),
+            SymbolScope::Free => self.emit(Opcode::GetFree, &[s.index]),
+            SymbolScope::Function => self.emit(Opcode::CurrentClosure, &[]),
+        };
     }
 
     pub fn compile(&mut self, code: ast::Program) -> Result<(), String> {
@@ -117,9 +136,13 @@ impl Compiler {
     }
 
     fn compile_let_statement(&mut self, statement: &ast::LetStatement) -> Result<(), String> {
-        self.compile_expression(&statement.value)?;
         let symbol = self.symbol_table.define(&statement.name.value);
-        self.emit(Opcode::SetGlobal, &[symbol.index]);
+        self.compile_expression(&statement.value)?;
+        if symbol.scope == SymbolScope::Global {
+            self.emit(Opcode::SetGlobal, &[symbol.index]);
+        } else {
+            self.emit(Opcode::SetLocal, &[symbol.index]);
+        }
         Ok(())
     }
 
@@ -149,7 +172,10 @@ impl Compiler {
 
     fn compile_call_expression(&mut self, call: &ast::CallExpression) -> Result<(), String> {
         self.compile_expression(&call.function)?;
-        self.emit(Opcode::Call, &[]);
+        for a in call.arguments.iter() {
+            self.compile_expression(a)?;
+        }
+        self.emit(Opcode::Call, &[call.arguments.len()]);
         Ok(())
     }
 
@@ -166,6 +192,12 @@ impl Compiler {
 
     fn compile_function_literal(&mut self, f: &ast::FunctionLiteral) -> Result<(), String> {
         self.enter_scope();
+        if !f.name.is_empty() {
+            self.symbol_table.define_function_name(&f.name);
+        }
+        for p in &f.parameters {
+            self.symbol_table.define(&p.value);
+        }
         self.compile_block_statement(&f.body)?;
 
         if self.last_instruction_is(Opcode::Pop) {
@@ -175,11 +207,21 @@ impl Compiler {
             self.emit(Opcode::Return, &[]);
         }
 
+        let free_symbols = self.symbol_table.free_symbols.clone();
+        let num_locals = self.symbol_table.num_definitions;
         let instructions = self.leave_scope();
 
-        let func = Object::CompiledFunction(CompiledFunction { instructions });
+        for s in &free_symbols {
+            self.load_symbol(s);
+        }
+
+        let func = Object::CompiledFunction(CompiledFunction::new(
+            instructions,
+            num_locals,
+            f.parameters.len(),
+        ));
         let c = self.add_constant(func);
-        self.emit(Opcode::Constant, &[c]);
+        self.emit(Opcode::Closure, &[c, free_symbols.len()]);
 
         Ok(())
     }
@@ -218,7 +260,7 @@ impl Compiler {
     fn compile_identifier(&mut self, identifier: &ast::Identifier) -> Result<(), String> {
         let symbol = self.symbol_table.resolve(&identifier.value);
         if let Some(sym) = symbol {
-            self.emit(Opcode::GetGlobal, &[sym.index]);
+            self.load_symbol(&sym);
             return Ok(());
         } else {
             return Err(format!("Undefined variable {}", identifier.value));
@@ -820,49 +862,73 @@ mod tests {
                 expected_constants: vec![
                     Integer(5),
                     Integer(10),
-                    Object::CompiledFunction(CompiledFunction::new_from_array(&[
-                        Constant.to_instruction(&[0]),
-                        Constant.to_instruction(&[1]),
-                        Add.to_instruction(&[]),
-                        ReturnValue.to_instruction(&[]),
-                    ])),
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            Constant.to_instruction(&[1]),
+                            Add.to_instruction(&[]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
                 ],
-                expected_instructions: vec![Constant.to_instruction(&[2]), Pop.to_instruction(&[])],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[2, 0]),
+                    Pop.to_instruction(&[]),
+                ],
             },
             CompilerTestCase {
                 input: "fn() { 5 + 10 }",
                 expected_constants: vec![
                     Integer(5),
                     Integer(10),
-                    Object::CompiledFunction(CompiledFunction::new_from_array(&[
-                        Constant.to_instruction(&[0]),
-                        Constant.to_instruction(&[1]),
-                        Add.to_instruction(&[]),
-                        ReturnValue.to_instruction(&[]),
-                    ])),
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            Constant.to_instruction(&[1]),
+                            Add.to_instruction(&[]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
                 ],
-                expected_instructions: vec![Constant.to_instruction(&[2]), Pop.to_instruction(&[])],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[2, 0]),
+                    Pop.to_instruction(&[]),
+                ],
             },
             CompilerTestCase {
                 input: "fn() { 1; 2 }",
                 expected_constants: vec![
                     Integer(1),
                     Integer(2),
-                    Object::CompiledFunction(CompiledFunction::new_from_array(&[
-                        Constant.to_instruction(&[0]),
-                        Pop.to_instruction(&[]),
-                        Constant.to_instruction(&[1]),
-                        ReturnValue.to_instruction(&[]),
-                    ])),
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            Pop.to_instruction(&[]),
+                            Constant.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
                 ],
-                expected_instructions: vec![Constant.to_instruction(&[2]), Pop.to_instruction(&[])],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[2, 0]),
+                    Pop.to_instruction(&[]),
+                ],
             },
             CompilerTestCase {
                 input: "fn() { }",
                 expected_constants: vec![Object::CompiledFunction(
-                    CompiledFunction::new_from_array(&[Return.to_instruction(&[])]),
+                    CompiledFunction::new_from_array(&[Return.to_instruction(&[])], 0, 0),
                 )],
-                expected_instructions: vec![Constant.to_instruction(&[0]), Pop.to_instruction(&[])],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[0, 0]),
+                    Pop.to_instruction(&[]),
+                ],
             },
         ];
         run_compiler_tests(tests);
@@ -871,6 +937,7 @@ mod tests {
     #[test]
     fn test_compiler_scopes() {
         use super::*;
+
         let mut compiler = Compiler::new();
         assert_eq!(compiler.scope_index, 0);
 
@@ -891,9 +958,20 @@ mod tests {
             Opcode::Sub
         );
 
+        assert!(compiler.symbol_table.outer.is_some());
+        assert!(compiler
+            .symbol_table
+            .outer
+            .as_ref()
+            .unwrap()
+            .outer
+            .is_none());
+
         compiler.leave_scope();
 
         assert_eq!(compiler.scope_index, 0);
+
+        assert!(compiler.symbol_table.outer.is_none());
 
         compiler.emit(Opcode::Add, &[]);
         assert_eq!(compiler.scopes[compiler.scope_index].instructions.len(), 2);
@@ -927,14 +1005,18 @@ mod tests {
                 input: "fn() { 24 }();",
                 expected_constants: vec![
                     Integer(24),
-                    Object::CompiledFunction(CompiledFunction::new_from_array(&[
-                        Constant.to_instruction(&[0]),
-                        ReturnValue.to_instruction(&[]),
-                    ])),
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
                 ],
                 expected_instructions: vec![
-                    Constant.to_instruction(&[1]),
-                    Call.to_instruction(&[]),
+                    Closure.to_instruction(&[1, 0]),
+                    Call.to_instruction(&[0]),
                     Pop.to_instruction(&[]),
                 ],
             },
@@ -942,20 +1024,402 @@ mod tests {
                 input: "let noArg = fn() { 24 }; noArg();",
                 expected_constants: vec![
                     Integer(24),
-                    Object::CompiledFunction(CompiledFunction::new_from_array(&[
-                        Constant.to_instruction(&[0]),
-                        ReturnValue.to_instruction(&[]),
-                    ])),
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
                 ],
                 expected_instructions: vec![
-                    Constant.to_instruction(&[1]),
+                    Closure.to_instruction(&[1, 0]),
                     SetGlobal.to_instruction(&[0]),
                     GetGlobal.to_instruction(&[0]),
-                    Call.to_instruction(&[]),
+                    Call.to_instruction(&[0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "let oneArg = fn(a) { a }; oneArg(24);",
+                expected_constants: vec![
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            GetLocal.to_instruction(&[0]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::Integer(24),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[0, 0]),
+                    SetGlobal.to_instruction(&[0]),
+                    GetGlobal.to_instruction(&[0]),
+                    Constant.to_instruction(&[1]),
+                    Call.to_instruction(&[1]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "let manyArg = fn(a, b, c) { a; b; c }; manyArg(24, 25, 26);",
+                expected_constants: vec![
+                    Object::CompiledFunction(CompiledFunction::new_from_array(
+                        &[
+                            GetLocal.to_instruction(&[0]),
+                            Pop.to_instruction(&[]),
+                            GetLocal.to_instruction(&[1]),
+                            Pop.to_instruction(&[]),
+                            GetLocal.to_instruction(&[2]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        3,
+                        3,
+                    )),
+                    Object::Integer(24),
+                    Object::Integer(25),
+                    Object::Integer(26),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[0, 0]),
+                    SetGlobal.to_instruction(&[0]),
+                    GetGlobal.to_instruction(&[0]),
+                    Constant.to_instruction(&[1]),
+                    Constant.to_instruction(&[2]),
+                    Constant.to_instruction(&[3]),
+                    Call.to_instruction(&[3]),
                     Pop.to_instruction(&[]),
                 ],
             },
         ];
+        run_compiler_tests(tests);
+    }
+
+    #[test]
+    fn test_let_statement_scopes() {
+        use Opcode::*;
+        let tests = vec![
+            CompilerTestCase {
+                input: "let num = 55; fn() { num }",
+                expected_constants: vec![
+                    Object::Integer(55),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetGlobal.to_instruction(&[0]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Constant.to_instruction(&[0]),
+                    SetGlobal.to_instruction(&[0]),
+                    Closure.to_instruction(&[1, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "fn() { let num = 55; num }",
+                expected_constants: vec![
+                    Object::Integer(55),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            SetLocal.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        0,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[1, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "fn() { let a = 55; let b = 77; a + b }",
+                expected_constants: vec![
+                    Object::Integer(55),
+                    Object::Integer(77),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[0]),
+                            SetLocal.to_instruction(&[0]),
+                            Constant.to_instruction(&[1]),
+                            SetLocal.to_instruction(&[1]),
+                            GetLocal.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[1]),
+                            Add.to_instruction(&[]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        2,
+                        0,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[2, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+        ];
+        run_compiler_tests(tests);
+    }
+
+    #[test]
+    fn test_builtins() {
+        use Object::Integer;
+        use Opcode::*;
+        let tests = vec![
+            CompilerTestCase {
+                input: "len([]); push([], 1);",
+                expected_constants: vec![Integer(1)],
+                expected_instructions: vec![
+                    GetBuiltin.to_instruction(&[0]),
+                    Array.to_instruction(&[0]),
+                    Call.to_instruction(&[1]),
+                    Pop.to_instruction(&[]),
+                    GetBuiltin.to_instruction(&[5]),
+                    Array.to_instruction(&[0]),
+                    Constant.to_instruction(&[0]),
+                    Call.to_instruction(&[2]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "fn() { len([]) }",
+                expected_constants: vec![Object::CompiledFunction(
+                    object::CompiledFunction::new_from_array(
+                        &[
+                            GetBuiltin.to_instruction(&[0]),
+                            Array.to_instruction(&[0]),
+                            Call.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        0,
+                        0,
+                    ),
+                )],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[0, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+        ];
+        run_compiler_tests(tests);
+    }
+
+    #[test]
+    fn test_closures() {
+        use Opcode::*;
+        let tests = vec![
+            CompilerTestCase {
+                input: "fn(a){fn(b){a + b}}",
+                expected_constants: vec![
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetFree.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            Add.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetLocal.to_instruction(&[0]),
+                            Closure.to_instruction(&[0, 1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[1, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "fn(a){fn(b){fn(c){a + b + c}}};",
+                expected_constants: vec![
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetFree.to_instruction(&[0]),
+                            GetFree.to_instruction(&[1]),
+                            Add.to_instruction(&[1]),
+                            GetLocal.to_instruction(&[0]),
+                            Add.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetFree.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            Closure.to_instruction(&[0, 2]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            GetLocal.to_instruction(&[0]),
+                            Closure.to_instruction(&[1, 1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[2, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "let global = 55;
+            fn(){let a = 66; fn(){let b = 77; fn(){let c = 88; global + a + b + c;}}}",
+                expected_constants: vec![
+                    Object::Integer(55),
+                    Object::Integer(66),
+                    Object::Integer(77),
+                    Object::Integer(88),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[3]),
+                            SetLocal.to_instruction(&[0]),
+                            GetGlobal.to_instruction(&[0]),
+                            GetFree.to_instruction(&[0]),
+                            Add.to_instruction(&[]),
+                            GetFree.to_instruction(&[1]),
+                            Add.to_instruction(&[]),
+                            GetLocal.to_instruction(&[0]),
+                            Add.to_instruction(&[]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        0,
+                    )),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[2]),
+                            SetLocal.to_instruction(&[0]),
+                            GetFree.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            Closure.to_instruction(&[4, 2]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        0,
+                    )),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Constant.to_instruction(&[1]),
+                            SetLocal.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            Closure.to_instruction(&[5, 1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        0,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Constant.to_instruction(&[0]),
+                    SetGlobal.to_instruction(&[0]),
+                    Closure.to_instruction(&[6, 0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+        ];
+        run_compiler_tests(tests);
+    }
+
+    #[test]
+    fn test_recursive_functions() {
+        use Opcode::*;
+        let tests = vec![
+            CompilerTestCase {
+                input: "let countDown = fn(x) { countDown(x - 1); };
+            countDown(1);",
+                expected_constants: vec![
+                    Object::Integer(1),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            CurrentClosure.to_instruction(&[]),
+                            GetLocal.to_instruction(&[0]),
+                            Constant.to_instruction(&[0]),
+                            Sub.to_instruction(&[]),
+                            Call.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::Integer(1),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[1, 0]),
+                    SetGlobal.to_instruction(&[0]),
+                    GetGlobal.to_instruction(&[0]),
+                    Constant.to_instruction(&[2]),
+                    Call.to_instruction(&[1]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+            CompilerTestCase {
+                input: "let wrapper = fn() {
+                let countDown = fn(x) { countDown(x - 1); };
+                countDown(1);
+            };
+            wrapper();",
+                expected_constants: vec![
+                    Object::Integer(1),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            CurrentClosure.to_instruction(&[]),
+                            GetLocal.to_instruction(&[0]),
+                            Constant.to_instruction(&[0]),
+                            Sub.to_instruction(&[]),
+                            Call.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        1,
+                    )),
+                    Object::Integer(1),
+                    Object::CompiledFunction(object::CompiledFunction::new_from_array(
+                        &[
+                            Closure.to_instruction(&[1, 0]),
+                            SetLocal.to_instruction(&[0]),
+                            GetLocal.to_instruction(&[0]),
+                            Constant.to_instruction(&[2]),
+                            Call.to_instruction(&[1]),
+                            ReturnValue.to_instruction(&[]),
+                        ],
+                        1,
+                        0,
+                    )),
+                ],
+                expected_instructions: vec![
+                    Closure.to_instruction(&[3, 0]),
+                    SetGlobal.to_instruction(&[0]),
+                    GetGlobal.to_instruction(&[0]),
+                    Call.to_instruction(&[0]),
+                    Pop.to_instruction(&[]),
+                ],
+            },
+        ];
+
         run_compiler_tests(tests);
     }
 }

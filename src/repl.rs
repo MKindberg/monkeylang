@@ -1,6 +1,6 @@
 use crate::compiler::Compiler;
 use crate::lexer::Lexer;
-use crate::object::{Environment, Object};
+use crate::object::{Environment, Object, BuiltinFunction};
 use crate::parser::Parser;
 use crate::symbol_table::SymbolTable;
 use crate::{evaluator, vm::VM};
@@ -26,6 +26,9 @@ pub fn start() {
     let mut constants: Vec<Object> = vec![];
     let mut globals = vec![Object::Null; crate::vm::GLOBALS_SIZE];
     let mut symbol_table = SymbolTable::new();
+    for (i, b) in BuiltinFunction::list().iter().enumerate() {
+        symbol_table.define_builtin(i, b.to_name());
+    }
 
     loop {
         let mut input = String::new();

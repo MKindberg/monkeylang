@@ -15,6 +15,7 @@ pub enum Object {
     HashMap(std::collections::HashMap<Object, Object>),
     Error(String),
     CompiledFunction(CompiledFunction),
+    Closure(Closure),
     Null,
 }
 
@@ -42,7 +43,8 @@ impl Object {
                     .join(", ")
             ),
             Object::Error(s) => s.to_string(),
-            Object::CompiledFunction(c) => "compiled function".to_string(),
+            Object::CompiledFunction(_) => "compiled function".to_string(),
+            Object::Closure(_) => "closure".to_string(),
             Object::Null => "null".to_string(),
         }
     }
@@ -59,6 +61,7 @@ impl Object {
             Object::HashMap(_) => "HASH_MAP",
             Object::Error(_) => "ERROR",
             Object::CompiledFunction(_) => "COMPILED_FUNCTION",
+            Object::Closure(_) => "CLOSURE",
             Object::Null => "NULL",
         }
     }
@@ -74,7 +77,7 @@ impl Object {
 }
 
 impl Display for Object {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.to_string())
     }
 }
@@ -115,7 +118,9 @@ impl Environment {
 
     pub fn get(&self, name: &str) -> Option<&Object> {
         let res = self.store.get(name);
+        dbg!(&self.store);
         if res.is_none() && self.outer.is_some() {
+            dbg!("Check outer");
             return self.outer.as_ref().unwrap().get(name);
         }
         return res;
@@ -141,11 +146,11 @@ impl Hash for Function {
 }
 
 impl Function {
-    pub fn new(parameters: Vec<Identifier>, body: BlockStatement, env: Environment) -> Function {
+    pub fn new(parameters: Vec<Identifier>, body: BlockStatement, env: & Environment) -> Function {
         Function {
             parameters,
             body,
-            env,
+            env: env.clone(),
         }
     }
 
@@ -165,17 +170,35 @@ impl Function {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CompiledFunction {
     pub instructions: code::Instructions,
+    pub num_locals: usize,
+    pub num_parameters: usize,
 }
 
 impl CompiledFunction {
-    pub fn new(instructions: Instructions) -> Self {
-        CompiledFunction { instructions }
-    }
-    pub fn new_from_array(instructions: &[Instructions]) -> Self {
+    pub fn new(instructions: Instructions, num_locals: usize, num_parameters: usize) -> Self {
         CompiledFunction {
-            instructions: Instructions::from_vec(instructions.iter().flatten().copied().collect()),
+            instructions,
+            num_locals,
+            num_parameters,
         }
     }
+    pub fn new_from_array(
+        instructions: &[Instructions],
+        num_locals: usize,
+        num_parameters: usize,
+    ) -> Self {
+        CompiledFunction::new(
+            Instructions::from_vec(instructions.iter().flatten().copied().collect()),
+            num_locals,
+            num_parameters,
+        )
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Closure {
+    pub func: CompiledFunction,
+    pub free: Vec<Object>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -195,6 +218,10 @@ impl Hash for BuiltinFunction {
 }
 
 impl BuiltinFunction {
+    pub fn list() -> Vec<BuiltinFunction> {
+        use BuiltinFunction::*;
+        vec![Len, Puts, First, Last, Rest, Push]
+    }
     pub fn execute(&self, args: &[Object]) -> Object {
         match self {
             BuiltinFunction::Len => Self::builtin_len(args),
@@ -203,6 +230,18 @@ impl BuiltinFunction {
             BuiltinFunction::Rest => Self::builtin_rest(args),
             BuiltinFunction::Push => Self::builtin_push(args),
             BuiltinFunction::Puts => Self::builtin_puts(args),
+        }
+    }
+
+    pub fn to_name(&self) -> &'static str {
+        use BuiltinFunction::*;
+        match self {
+            Len => "len",
+            First => "first",
+            Last => "last",
+            Rest => "rest",
+            Push => "push",
+            Puts => "puts",
         }
     }
 
@@ -218,14 +257,7 @@ impl BuiltinFunction {
         }
     }
     fn to_string(&self) -> String {
-        match self {
-            BuiltinFunction::Len => "builtin_len".to_string(),
-            BuiltinFunction::First => "builtin_first".to_string(),
-            BuiltinFunction::Last => "builtin_last".to_string(),
-            BuiltinFunction::Rest => "builtin_rest".to_string(),
-            BuiltinFunction::Push => "builtin_push".to_string(),
-            BuiltinFunction::Puts => "builtin_puts".to_string(),
-        }
+        format!("builtin_{}", self.to_name())
     }
 
     fn builtin_len(args: &[Object]) -> Object {
