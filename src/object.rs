@@ -1,7 +1,9 @@
 use crate::ast::{BlockStatement, Identifier};
 use crate::code::{self, Instructions};
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Object {
@@ -98,32 +100,33 @@ impl Hash for Object {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Environment {
     store: std::collections::HashMap<String, Object>,
-    outer: Option<Box<Environment>>,
+    outer: Option<Rc<RefCell<Environment>>>,
 }
 
 impl Environment {
-    pub fn new() -> Environment {
-        Environment {
+    pub fn new() -> Rc<RefCell<Environment>> {
+        Rc::new(RefCell::new(Environment {
             store: std::collections::HashMap::new(),
             outer: None,
-        }
+        }))
     }
 
-    pub fn new_with_outer(outer: Environment) -> Environment {
-        Environment {
+    pub fn new_with_outer(outer: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
+        Rc::new(RefCell::new(Environment {
             store: std::collections::HashMap::new(),
-            outer: Some(Box::new(outer)),
-        }
+            outer: Some(outer),
+        }))
     }
 
-    pub fn get(&self, name: &str) -> Option<&Object> {
+    pub fn get(&self, name: &str) -> Option<Object> {
         let res = self.store.get(name);
-        dbg!(&self.store);
-        if res.is_none() && self.outer.is_some() {
-            dbg!("Check outer");
-            return self.outer.as_ref().unwrap().get(name);
+        match res {
+            Some(_) => res.cloned(),
+            None => match &self.outer {
+                Some(outer) => outer.borrow().get(name),
+                None => None,
+            }
         }
-        return res;
     }
 
     pub fn set(&mut self, name: String, value: Object) -> Object {
@@ -136,7 +139,7 @@ impl Environment {
 pub struct Function {
     pub parameters: Vec<Identifier>,
     pub body: BlockStatement,
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl Hash for Function {
@@ -146,11 +149,15 @@ impl Hash for Function {
 }
 
 impl Function {
-    pub fn new(parameters: Vec<Identifier>, body: BlockStatement, env: & Environment) -> Function {
+    pub fn new(
+        parameters: Vec<Identifier>,
+        body: BlockStatement,
+        env: Rc<RefCell<Environment>>,
+    ) -> Function {
         Function {
             parameters,
             body,
-            env: env.clone(),
+            env,
         }
     }
 

@@ -22,7 +22,7 @@ const MONKEY_FACE: &str = r#"            __,__
 "#;
 
 pub fn start() {
-    let mut env = Environment::new();
+    let env = Environment::new();
     let mut constants: Vec<Object> = vec![];
     let mut globals = vec![Object::Null; crate::vm::GLOBALS_SIZE];
     let mut symbol_table = SymbolTable::new();
